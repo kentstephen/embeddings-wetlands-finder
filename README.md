@@ -602,8 +602,13 @@ Pixels against NWI, six folds, each square scored by heads that never saw it:
 
 - Wetland AUC is better in 49 of 58 wetland landscapes (median +.014) and in all 6 ordinary ones that could be
   scored. Ten ordinary squares have too little wetland to score.
-- Sacramento Valley, CA falls from .817 to .583. Its wetland is mostly flooded rice on leveled fields. Brazoria, TX
-  (-.026) and Snohomish, WA (-.010) are the other losses over .005.
+- Sacramento Valley, CA falls from .817 to .583. Three quarters of its NWI wetland is emergent marsh marked
+  artificially flooded (PEM1K): managed units on leveled ground, beside leveled rice fields that NWI calls upland.
+  The whole square spans 8.5 m of elevation. A second pair of heads taught on 12 other squares shows the same
+  direction (.883 to .784): the one with elevation calls 73 % of that wetland open water and raises the score of
+  the rice fields. Taught inside the square, terrain does no harm (.984 alone, .988 with it), so the loss is in
+  carrying terrain to a kind of ground the other squares do not have. Brazoria, TX (-.026) and Snohomish, WA
+  (-.010) are the other losses over .005.
 - The arid and mountain West gains the most and stays the weakest: San Luis Valley, CO .659 to .780, High Plains,
   KS .577 to .651, Flathead Valley, MT .787 to .839, Centennial Valley, MT .834 to .885. In San Luis Valley 2 % of
   what is flagged is wetland.
