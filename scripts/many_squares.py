@@ -156,8 +156,9 @@ def gather(name, lon, lat, kind):
         cover = E.read_worldcover(rc)
         try:
             hyd = E.again(lambda: FF.hydric(s)[0])
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             hyd = np.full(lab.shape, np.nan, np.float32)
+            print(f"  soil survey failed for {name}: {type(e).__name__}: {str(e)[:160]}", flush=True)
         X = {}
         for model in MODELS:
             hnd = E.open_model(model)

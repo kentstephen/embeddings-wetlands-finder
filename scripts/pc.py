@@ -1,5 +1,6 @@
 """A small reader for Microsoft Planetary Computer's public STAC catalog (no key: a short-lived token per
-collection is handed out to anyone)."""
+collection is handed out to anyone, and asked for again before it runs out)."""
+import calendar
 import json
 import time
 import urllib.request
@@ -29,6 +30,8 @@ def search(collection, box, limit=200, **more):
 
 def signed(collection, href):
     """An asset address with the collection's read token, as a GDAL /vsicurl/ path."""
-    if collection not in _tokens:
-        _tokens[collection] = _get(f"{API}/sas/v1/token/{collection}")["token"]
-    return f"/vsicurl/{href}?{_tokens[collection]}"
+    tok = _tokens.get(collection)
+    if tok is None or tok[1] - time.time() < 300:  # a token can have as little as 15 minutes left when handed out
+        d = _get(f"{API}/sas/v1/token/{collection}")
+        _tokens[collection] = tok = (d["token"], calendar.timegm(time.strptime(d["msft:expiry"], "%Y-%m-%dT%H:%M:%SZ")))
+    return f"/vsicurl/{href}?{tok[0]}"

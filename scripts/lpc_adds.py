@@ -20,7 +20,11 @@ A small head (one hidden layer of 64) is taught on terrain, points, both, and ea
 and with terrain and points. Scored on 1 km blocks it was not taught on (three folds).
 
 Nothing is cached: about 6 billion points (about 42 GB) are read over the network each run, by --workers
-processes. Peak memory about 8 GB; the process stops itself at 12 GB.
+processes. Peak memory about 10 GB; the process stops itself at 14 GB.
+
+With all three squares the run ends with the across-squares test of wetland_head.py: a head taught on two squares
+and scored on the third, with and without the points. Intensity is not calibrated between lidar projects, so the
+points are also tried with every number rescaled inside its own square (mean 0, spread 1, no labels used).
 
     uv run scripts/lpc_adds.py [--year 2024] [--workers 8] [--half-km 5] [--only "Lee, NH"]
 """
@@ -38,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import embedding_signal as E  # noqa: E402
 import ept  # noqa: E402
 import terrain_adds as T  # noqa: E402
+import wetland_head as H  # noqa: E402
 
 PROJECT = {"Delmarva, MD": "DE_Statewide_1_B23", "Stutsman County, ND": "ND_3DEPProcessing_5_D22",
            "Lee, NH": "NH_Coastal_1_2019"}
@@ -210,7 +215,7 @@ def main():
     ap.add_argument("--only", action="append")
     a = ap.parse_args()
     warnings.filterwarnings("ignore")
-    peak = E.guard(12)
+    peak = E.guard(14)
     E.HALF_KM = a.half_km
     if a.only:
         E.SQUARES = {k: v for k, v in E.SQUARES.items() if k in a.only}
@@ -242,18 +247,41 @@ def main():
         run("terrain", name, s["T"][ok], ok)
         run("points", name, s["P"][ok], ok)
         run("terrain + points", name, np.concatenate([s["T"][ok], s["P"][ok]], 1), ok)
+    across = len(S) == 3
+    xcols, XR = ["terrain", "points", "points, own scale", "terrain + points", "terrain + points, own scale"], {}
+    if across:
+        for s in S.values():  # every point number rescaled inside its own square
+            P = s["P"][s["x_ok"]]
+            s["Pz"] = ((s["P"] - P.mean(0)) / (P.std(0) + 1e-6)).astype(np.float32)
+        loo = lambda f: H.leave_one_out({n: (f(s, s["x_ok"]), s["x_ok"]) for n, s in S.items()}, S)  # noqa: E731
+        XR["terrain"] = loo(lambda s, ok: s["T"][ok])
+        XR["points"] = loo(lambda s, ok: s["P"][ok])
+        XR["points, own scale"] = loo(lambda s, ok: s["Pz"][ok])
+        XR["terrain + points"] = loo(lambda s, ok: np.concatenate([s["T"][ok], s["P"][ok]], 1))
+        XR["terrain + points, own scale"] = loo(lambda s, ok: np.concatenate([s["T"][ok], s["Pz"][ok]], 1))
+        print(f"  across squares: terrain and points done, memory {peak():.1f} GB", flush=True)
     for model in E.MODELS:
         hnd = E.open_model(model)
+        Em = {}
         for name, s in S.items():
             X, ok = E.read_model(model, hnd, a.year, s["rc"])
             ok &= s["x_ok"]
             X = X[ok]
+            Em[name] = (X, ok)
             run(model, name, X, ok)
             X = np.concatenate([X, s["T"][ok]], 1)
             run(model + " + terrain", name, X, ok)
             X = np.concatenate([X, s["P"][ok]], 1)
             run(model + " + terrain + points", name, X, ok)
             del X
+        if across:
+            for col, keys in ((model + " + terrain", ("T",)), (model + " + terrain + points", ("T", "P")),
+                              (model + " + terrain + points, own scale", ("T", "Pz"))):
+                XR[col] = H.leave_one_out({n: (np.concatenate([Em[n][0]] + [S[n][k][Em[n][1]] for k in keys], 1), Em[n][1])
+                                           for n in S}, S)
+                xcols.append(col)
+            print(f"  across squares: {model} done, memory {peak():.1f} GB", flush=True)
+        del Em
 
     print("\nAUC (and, at 80 % of wetland found, the share of flagged pixels that are wetland). Small head, scored on "
           "1 km blocks it was not taught on.")
@@ -266,6 +294,18 @@ def main():
             for c in cols:
                 au, pr = R[t][c][name]
                 print(f"    {c:32} {au:.3f} ({pr:.0%})")
+    if across:
+        print("\nACROSS SQUARES. The same two numbers. Small head taught on the other two squares, scored on every pixel "
+              "of this one.")
+        for t in H.TESTS:
+            print(f"\n{t}")
+            for name in S:
+                if t not in XR["terrain"][name]:
+                    continue
+                print(f"  {name}")
+                for c in xcols:
+                    au, pr = XR[c][name][t]
+                    print(f"    {c:44} {au:.3f} ({pr:.0%})")
     print(f"\npeak memory {peak():.1f} GB")
 
 

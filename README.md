@@ -30,10 +30,17 @@ the share of flagged pixels that NWI calls wetland when the cutoff is set to fin
   70 % of what it flags is wetland by NWI.
 - 1 m lidar terrain alone does about as well, and adding it to an embedding is the one addition that helps:
   up to +.02 AUC and 4 to 10 points of flagged pixels being wetland.
-- Nothing else tested adds anything on top of an embedding with terrain: the raw lidar points, summer aerial
-  photos, and leaf-off or summer Sentinel-2 all change AUC by .004 or less, which is inside the run-to-run noise.
+- Nothing else tested adds anything on top of an embedding with terrain: the raw lidar points, summer and October
+  aerial photos, and leaf-off or summer Sentinel-2 all change AUC by .004 or less, which is inside the run-to-run
+  noise.
+- A small network that reads the elevation itself, in place of eleven summaries of it, does a little better:
+  +.001 to +.005 AUC on top of an embedding inside a square, and more in the flat Delmarva square and under its
+  trees (+.014 to +.021). Across squares it helps with AlphaEarth and not consistently with OlmoEarth.
 - Carrying a head to a square it has never seen is the weak spot. The share of flagged pixels that are wetland
   falls from 72 to 76 % to 41 to 60 %.
+- Teaching on more landscapes closes most of that gap. With 46 squares across the lower 48 states, a head scored
+  on squares it never saw reaches a median AUC of .95, and 79 % of what it flags is wetland by NWI. The spread
+  between squares stays wide (.82 to .996).
 - From a wet year to a dry year the ranking of pixels holds, but a fixed cutoff does not.
 - Against the one field research site inside a square, the head taught on NWI scores .966.
 
@@ -53,7 +60,9 @@ caches nothing. The only files written are the figures and the saved heads.
 | `wet_dry.py` | Does the signal depend on a wet or a dry year? | 5 min, 5 GB |
 | `flagged_forest.py` | What is the forest the head flags and NWI calls upland? Draws the figure. | 8 min, 7 GB |
 | `field_check.py` | How does the head score against a field research site's own map? | 4 min, 6 GB |
-| `many_squares.py` | Does a head taught on many landscapes carry to ones it has not seen? Results pending. | 2 h, 14 GB |
+| `patch_head.py` | Does a network that reads the elevation itself beat the eleven terrain summaries? | 63 min, 13 GB |
+| `naip_leafoff.py` | Do October aerial photos find wetland under trees where summer photos do not? | 15 min, 8 GB |
+| `many_squares.py` | Does a head taught on many landscapes carry to ones it has not seen? 46 squares. | 80 min, 5 GB |
 
 `ept.py` reads the USGS public Entwine Point Tile clouds and `pc.py` reads Microsoft Planetary Computer.
 
@@ -112,10 +121,75 @@ Notes on the inputs:
 
 - Points: 38 numbers per pixel (density, returns, intensity, height above ground). The three point clouds are
   classed only into ground, water and noise, so vegetation structure comes from height above the elevation
-  model, not from class codes. Intensity ranges differ widely between the three projects.
+  model, not from class codes. Intensity ranges differ widely between the three projects. All 5.9 billion points
+  over the three squares were read with no failed nodes. Points fall on 99.8 % of pixels in Delmarva and Lee and
+  90.6 % in Stutsman (81.5 % with a ground return), where open water returns little.
 - Aerial photos: NAIP read at 2 m and reduced to eleven numbers per pixel, mostly from 2023 summer flights. Lee
-  is filled in places from October 2018 and July 2014. A head that reads the image itself was not tested.
+  is filled in places from October 2018 and July 2014. A network that reads the photo itself was not tested.
 - Sentinel-2: the median of up to 12 clear scenes of 2024 per season, nine numbers per pixel.
+
+### Reading the elevation itself
+
+In place of the eleven terrain summaries, a small convolutional network reads two 64 x 64 pictures of the
+elevation around each pixel, as height against the pixel's own ground: one of 2 m cells (128 m across) and one of
+10 m cells (640 m across). "Summaries" is the small head on the eleven numbers; "pictures" is the network. Same
+pixels and held-out blocks for both.
+
+Inside a square, vegetated wetland vs upland:
+
+| Input | Delmarva | Stutsman | Lee |
+|---|---|---|---|
+| Summaries | .932 (58 %) | .976 (62 %) | .954 (59 %) |
+| Pictures | .957 (71 %) | .977 (61 %) | .957 (60 %) |
+| AlphaEarth + summaries | .960 (70 %) | .983 (71 %) | .969 (71 %) |
+| AlphaEarth + pictures | .965 (74 %) | .984 (71 %) | .971 (71 %) |
+| OlmoEarth + summaries | .960 (70 %) | .986 (75 %) | .971 (73 %) |
+| OlmoEarth + pictures | .966 (74 %) | .987 (76 %) | .974 (74 %) |
+
+Where the call is hardest, inside a square:
+
+| Test | Square | AlphaEarth + summaries | + pictures | OlmoEarth + summaries | + pictures |
+|---|---|---|---|---|---|
+| Within 30 m of the NWI line | Delmarva | .877 | .885 | .879 | .890 |
+| | Stutsman | .932 | .933 | .942 | .944 |
+| | Lee | .886 | .890 | .896 | .900 |
+| Forested wetland vs upland forest | Delmarva | .893 | .907 | .891 | .912 |
+| | Lee | .961 | .965 | .962 | .967 |
+
+Taught on the other two squares, scored on the third:
+
+| Input | Delmarva | Stutsman | Lee |
+|---|---|---|---|
+| Summaries | .838 (37 %) | .951 (43 %) | .936 (49 %) |
+| Pictures | .861 (39 %) | .954 (48 %) | .946 (53 %) |
+| AlphaEarth + summaries | .930 (59 %) | .950 (40 %) | .922 (42 %) |
+| AlphaEarth + pictures | .938 (62 %) | .962 (49 %) | .945 (54 %) |
+| OlmoEarth + summaries | .938 (60 %) | .951 (41 %) | .931 (45 %) |
+| OlmoEarth + pictures | .948 (65 %) | .947 (40 %) | .938 (49 %) |
+
+The pictures gain most in Delmarva, the flat square, where the summaries were weakest. Inside a square most of
+the other gains are near the .002 run-to-run noise. Each number is one fit of a network with one set of choices
+(picture size, depth, eight epochs); none of them was tuned.
+
+### October aerial photos over Lee
+
+NAIP is flown in summer nearly everywhere. Over the Lee square two flights were late, 16 and 26 October 2018 and
+24 October 2021, when much of the hardwood canopy has turned or dropped (oak and beech still hold leaves). Same
+eleven numbers per pixel as the summer photos, same pixels for every flight.
+
+| Input | Wetland vs upland | Within 30 m | Forested vs upland forest |
+|---|---|---|---|
+| August 2023 alone | .782 (17 %) | .708 | .728 (13 %) |
+| October 2018 alone | .847 (25 %) | .784 | .832 (20 %) |
+| October 2021 alone | .857 (26 %) | .792 | .836 (20 %) |
+| August 2023 + October 2021 | .876 (30 %) | .807 | .857 (23 %) |
+| Terrain | .954 (59 %) | .859 | .946 (49 %) |
+| Terrain + October 2021 | .958 (62 %) | .870 | .949 (51 %) |
+| OlmoEarth + terrain | .971 (73 %) | .896 | .962 (61 %) |
+| OlmoEarth + terrain + October 2021 | .971 (72 %) | .896 | .964 (61 %) |
+
+Alone, the October photos see much more than the August ones, most of all under trees (.73 to .84). On top of an
+embedding with terrain they add nothing, the same as every other image input tried.
 
 ### A head taught in two squares, scored on the third
 
@@ -139,6 +213,127 @@ The heads taught on all three squares are saved in `models/` (6 to 47 KB each) w
 into the first layer, so scoring needs only numpy:
 
     h = np.maximum(x @ W1 + b1, 0);  p = 1 / (1 + np.exp(-(h @ W2 + b2)))
+
+### Many squares
+
+Sixty candidate 10 km squares across the lower 48 states; 46 were kept. The rest had too little or too much
+vegetated wetland by NWI (under 1 % or over 85 % of the land), gaps in the 1 m elevation, or a map service that
+failed. Each kept square gives 50,000 pixels. The squares are dealt into six folds, and every score below is for
+a square whose pixels the head never saw. AlphaEarth and OlmoEarth only.
+
+Median over the 46 held-out squares, with the lowest and highest square:
+
+| Input | AUC | Flagged that is wetland | AUC within 30 m | AUC, forest |
+|---|---|---|---|---|
+| Terrain | .914 (.665 to .980) | 61 % (3 to 97) | .718 | .893 |
+| AlphaEarth | .936 (.791 to .994) | 71 % (2 to 100) | .717 | .919 |
+| AlphaEarth + terrain | .951 (.824 to .996) | 79 % (3 to 100) | .751 | .934 |
+| OlmoEarth | .938 (.772 to .995) | 73 % (3 to 100) | .728 | .914 |
+| OlmoEarth + terrain | .948 (.775 to .997) | 75 % (4 to 100) | .760 | .929 |
+
+The share of flagged pixels that are wetland follows how much wetland a square has: it is 3 % in Merced, CA, where
+1 % of the land is wetland, and 100 % in the Mobile-Tensaw delta, where 73 % is. For the three original squares,
+taught on the other landscapes: Delmarva .950 (66 %), Stutsman .976 (61 %), Lee .954 (57 %) with AlphaEarth and
+terrain, against .930 (59 %), .950 (40 %) and .922 (42 %) when the head was taught on just the other two.
+
+How many squares to teach from, with the number of taught pixels held at 96,000. Median over held-out squares:
+
+| | 2 squares | 5 squares | 10 squares | All (about 38) |
+|---|---|---|---|---|
+| AlphaEarth + terrain, AUC | .884 | .934 | .942 | .951 |
+| lowest square | .395 | .742 | .833 | .818 |
+| flagged that is wetland | 56 % | 65 % | 75 % | 79 % |
+| OlmoEarth + terrain, AUC | .892 | .919 | .942 | .947 |
+| lowest square | .481 | .721 | .761 | .789 |
+| flagged that is wetland | 55 % | 65 % | 76 % | 74 % |
+
+Most of the gain comes by ten squares. The worst square improves the most.
+
+One year against four years (2018, 2020, 2022, 2024) of embeddings in teaching. The cutoff is set once, where the
+head finds 80 % of the wetland it was taught on, and then applied to each year of every held-out square:
+
+| Input | Taught on | AUC | Wetland found | Spread over years | Worst square |
+|---|---|---|---|---|---|
+| AlphaEarth + terrain | one year | .954 | 61 % | 12 % | 40 % |
+| | four years | .954 | 68 % | 9 % | 32 % |
+| OlmoEarth + terrain | one year | .949 | 61 % | 15 % | 56 % |
+| | four years | .954 | 62 % | 11 % | 31 % |
+
+Teaching on four years does not change the ranking and makes a fixed cutoff somewhat steadier from year to year.
+In a square it has not seen, a cutoff meant to find 80 % finds 61 to 68 %.
+
+The USDA soil survey as a second answer key (gNATSGO; a map unit at least half hydric counts as hydric soil):
+
+| Input | AUC vs NWI | AUC vs hydric soil | AUC where both agree |
+|---|---|---|---|
+| Terrain | .912 | .835 | .948 |
+| AlphaEarth + terrain | .951 | .869 | .979 |
+| OlmoEarth + terrain | .946 | .859 | .978 |
+
+| Pixels | Share of all | Flagged, AlphaEarth + terrain |
+|---|---|---|
+| NWI wetland on hydric soil | 20 % | 85 % |
+| NWI wetland, soil not hydric | 6 % | 64 % |
+| NWI upland on hydric soil | 15 % | 20 % |
+| NWI upland, soil not hydric | 60 % | 6 % |
+
+Where NWI and the soil survey agree, the heads score .98. Upland by NWI on hydric soil is flagged three times as
+often as upland on other soil. That group holds both wetland NWI missed and drained or farmed hydric soil that is
+no longer wetland, and these numbers do not tell the two apart.
+
+<details>
+<summary>Every square: AUC (share of flagged pixels that are wetland)</summary>
+
+| Square | Wetland share | Terrain | AlphaEarth + terrain | OlmoEarth + terrain |
+|---|---|---|---|---|
+| Delmarva, MD | 16 % | .901 (49 %) | .950 (66 %) | .950 (66 %) |
+| Stutsman County, ND | 6 % | .959 (47 %) | .976 (61 %) | .977 (64 %) |
+| Lee, NH | 10 % | .949 (56 %) | .954 (57 %) | .951 (56 %) |
+| Francis Marion, SC | 51 % | .829 (73 %) | .904 (84 %) | .905 (85 %) |
+| Okefenokee edge, GA | 37 % | .831 (61 %) | .934 (84 %) | .928 (82 %) |
+| Green Swamp, FL | 53 % | .850 (77 %) | .959 (95 %) | .960 (96 %) |
+| Reelfoot, TN | 15 % | .954 (68 %) | .977 (92 %) | .974 (86 %) |
+| Atchafalaya edge, LA | 65 % | .851 (85 %) | .938 (94 %) | .944 (94 %) |
+| Brazoria, TX | 10 % | .695 (14 %) | .881 (37 %) | .821 (23 %) |
+| Rainwater Basin, NE | 2 % | .912 (8 %) | .945 (14 %) | .946 (14 %) |
+| Sandhills, NE | 9 % | .940 (44 %) | .984 (81 %) | .979 (75 %) |
+| Prairie Coteau, SD | 3 % | .912 (19 %) | .924 (21 %) | .925 (21 %) |
+| Itasca County, MN | 22 % | .955 (84 %) | .957 (86 %) | .965 (89 %) |
+| Luce County, MI | 28 % | .952 (84 %) | .982 (96 %) | .978 (96 %) |
+| Kankakee, IN | 9 % | .874 (28 %) | .953 (51 %) | .949 (51 %) |
+| Adirondacks, NY | 14 % | .944 (64 %) | .961 (70 %) | .965 (74 %) |
+| Penobscot, ME | 21 % | .950 (75 %) | .960 (82 %) | .958 (81 %) |
+| Plymouth County, MA | 31 % | .923 (73 %) | .945 (79 %) | .944 (80 %) |
+| Pine Barrens, NJ | 34 % | .864 (65 %) | .965 (93 %) | .967 (93 %) |
+| Poconos, PA | 14 % | .922 (53 %) | .951 (67 %) | .936 (60 %) |
+| Canaan Valley, WV | 18 % | .966 (78 %) | .972 (86 %) | .951 (72 %) |
+| Flathead Valley, MT | 16 % | .790 (30 %) | .824 (33 %) | .803 (32 %) |
+| Merced, CA | 1 % | .796 (3 %) | .853 (3 %) | .854 (4 %) |
+| Roscommon, MI | 48 % | .884 (78 %) | .933 (88 %) | .943 (91 %) |
+| Sampson County, NC | 13 % | .947 (63 %) | .956 (66 %) | .954 (65 %) |
+| Bladen County, NC | 35 % | .837 (59 %) | .928 (78 %) | .918 (77 %) |
+| Wicomico, MD | 16 % | .834 (33 %) | .954 (67 %) | .959 (70 %) |
+| Sussex County, DE | 13 % | .783 (24 %) | .906 (43 %) | .897 (41 %) |
+| Osceola, FL | 26 % | .863 (54 %) | .948 (83 %) | .932 (80 %) |
+| Tensas, LA | 78 % | .665 (81 %) | .930 (96 %) | .856 (90 %) |
+| Mobile-Tensaw, AL | 73 % | .946 (96 %) | .996 (100 %) | .997 (100 %) |
+| Big Thicket, TX | 8 % | .812 (17 %) | .857 (21 %) | .845 (20 %) |
+| Kidder County, ND | 8 % | .955 (51 %) | .971 (60 %) | .968 (56 %) |
+| Day County, SD | 10 % | .960 (60 %) | .975 (72 %) | .975 (73 %) |
+| Polk County, MN | 11 % | .947 (58 %) | .952 (59 %) | .962 (64 %) |
+| Cheyenne Bottoms, KS | 41 % | .916 (78 %) | .951 (87 %) | .929 (82 %) |
+| Horicon, WI | 48 % | .980 (97 %) | .993 (100 %) | .995 (100 %) |
+| Tug Hill, NY | 30 % | .936 (79 %) | .943 (80 %) | .946 (82 %) |
+| Montezuma, NY | 38 % | .925 (82 %) | .915 (77 %) | .939 (84 %) |
+| Washington County, ME | 11 % | .939 (54 %) | .956 (63 %) | .958 (65 %) |
+| Great Swamp, NJ | 38 % | .931 (82 %) | .959 (88 %) | .961 (89 %) |
+| Klamath Basin, OR | 4 % | .918 (17 %) | .940 (23 %) | .947 (24 %) |
+| Teton Valley, ID | 47 % | .815 (67 %) | .962 (94 %) | .945 (91 %) |
+| Sacramento Valley, CA | 45 % | .688 (55 %) | .955 (91 %) | .775 (61 %) |
+| Grays Harbor, WA | 12 % | .872 (37 %) | .951 (60 %) | .953 (62 %) |
+| Centennial Valley, MT | 37 % | .871 (66 %) | .930 (80 %) | .947 (85 %) |
+
+</details>
 
 ### Wet year against dry year
 
@@ -225,7 +420,7 @@ No public field-delineated wetland boundaries were found inside the Delmarva or 
 
 - The labels are NWI, so almost every score is agreement with NWI. A wetland NWI missed counts as upland here.
   The one check against a field site covers 1 km2 of prairie potholes.
-- Three squares. The scores differ by landscape and a head taught in two does not carry cleanly to the third.
-  Whether more squares to teach from would close that gap is not yet tested.
+- Most tests use three squares. The 46-square test covers the lower 48 states only, with squares picked by hand
+  for known wetland landscapes, and some held-out squares still score far below the median.
 - NWI's line is least exact at the boundary, which is also where the scores are lowest.
 - Each number is a single fit. Differences of a few thousandths between inputs are inside the noise.

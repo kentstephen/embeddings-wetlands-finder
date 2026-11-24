@@ -36,14 +36,17 @@ IMAGERY = ["red", "green", "blue", "near infrared", "red spread", "green spread"
            "near infrared spread", "NDVI", "NDVI spread", "NDWI"]
 
 
-def read_naip(box):
+def read_naip(box, days=None):
     """NAIP over the box on a 2 m grid in the photos' UTM zone: (4, h, w) float32 in 0 to 1 (NaN none), west, north,
-    CRS, and the flight days used. The newest flight is read first; older ones only fill what is still empty."""
+    CRS, and the flight days used. The newest flight is read first; older ones only fill what is still empty.
+    days: keep only photos whose date starts with one of these strings ("2021-10" for one flight season)."""
     import rasterio
     from pyproj import Transformer
     from rasterio.enums import Resampling
     from rasterio.windows import from_bounds
     items = sorted(pc.search("naip", box), key=lambda i: i["properties"]["datetime"], reverse=True)
+    if days:
+        items = [i for i in items if i["properties"]["datetime"].startswith(tuple(days))]
     z = crs = None
     used = set()
     with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", GDAL_HTTP_MAX_RETRY="4", GDAL_HTTP_RETRY_DELAY="3"):
