@@ -56,6 +56,10 @@ the share of flagged pixels that NWI calls wetland when the cutoff is set to fin
   terrain numbers from 1 m lidar finds 49 to 85 % of them at the same price.
 - The national 10 m elevation model gives the same lift as 1 m lidar in Vermont and Massachusetts and most of it
   in New Jersey and Delaware, so the gain does not depend on lidar coverage.
+- That lift carries to a national head. One head taught on the 76 squares with AlphaEarth and the 10 m terrain
+  numbers finds 39 to 70 % of the wetlands under 2 acres in the four states, against 23 to 50 % without elevation,
+  at the same 5 % of dry ground flagged. Against NWI in held-out squares the gain is small (median wetland AUC
+  .925 to .943), and one square of rice fields gets much worse.
 
 ## Scripts
 
@@ -80,6 +84,7 @@ caches nothing. The only files written are the figures and the saved heads.
 | `water_head.py` | Can one head tell upland, vegetated wetland and open water apart? 76 squares. Saves the head. | 32 min, 4 GB |
 | `small_wetlands.py` | How many wetlands of each size does the saved head find in Vermont's finer map? | 1 min, 2 GB |
 | `fine_labels.py` | Do finer state labels, or elevation, let a head find small wetlands? Four states, 66 squares. | 66 min, 11 GB (1 m lidar); 36 min, 10 GB (`--elev 10m`) |
+| `national_elev.py` | Does 10 m elevation help one national head, on NWI pixels and on small wetlands? 76 squares. Saves the head. | 57 min, 9 GB |
 
 `ept.py` reads the USGS public Entwine Point Tile clouds and `pc.py` reads Microsoft Planetary Computer.
 `nwi_tiles.py` reads NWI polygons from the PMTiles copy on Source Cooperative, and `export_head.py` writes a
@@ -559,6 +564,53 @@ without elevation are the same heads as above:
   New Jersey 21 to 58 % against 39 % and 23 %; Delaware 26 to 45 % against 63 % and 38 %.
 
 Both runs teach on the same squares. Two Massachusetts squares with no 1 m elevation are left out of both.
+
+### One national head with 10 m elevation
+
+`national_elev.py` teaches the three-class head on the same 76 squares as the saved head, once on AlphaEarth alone
+and once with the eleven terrain numbers from 3DEP 1/3 arc-second, which covers the lower 48 states. No square was
+dropped and none lacked elevation.
+
+Small wetlands first. Heads taught on all 76 squares, scored on the eleven held-out state squares of
+`fine_labels.py`. Wetlands under 2 acres found, with 5 % of dry ground flagged. The last column is the head taught
+inside the state on NWI with 10 m elevation, from the table above:
+
+| State | Wetlands | national, AlphaEarth alone | national, with elevation | in the state, with elevation |
+|---|---|---|---|---|
+| Vermont | 1,542 | 26 % | 39 % | 41 % |
+| Massachusetts | 1,448 | 50 % | 70 % | 86 % |
+| New Jersey | 352 | 23 % | 50 % | 41 % |
+| Delaware | 532 | 38 % | 62 % | 68 % |
+
+- With 2 % of dry ground flagged the same four go from 15, 28, 12 and 19 % to 24, 45, 26 and 27 %.
+- Counting only the wetlands NWI does not have, at 5 %: 24 to 37 % in Vermont, 38 to 60 % in Massachusetts, 9 to
+  24 % in New Jersey, 24 to 45 % in Delaware. The head was taught on NWI alone, so these are wetlands of a kind
+  its labels never showed it.
+- Every size class improves in every state. Under 0.1 acre stays the hardest: 20 % in Vermont, 44 % in Delaware.
+- The head refit here on AlphaEarth alone gives the same numbers as the saved head in every row.
+
+Pixels against NWI, six folds, each square scored by heads that never saw it:
+
+| | AlphaEarth alone | with 10 m elevation |
+|---|---|---|
+| Wetland AUC, 58 wetland landscapes, median | .925 | .943 |
+| Flagged that is wetland, same squares | 65 % | 70 % |
+| Open water AUC, 54 squares | .936 | .952 |
+| Upland called wetland, 60 squares | 2.9 % | 3.0 % |
+| Wetland AUC, 6 ordinary landscapes | .885 | .901 |
+| Open water AUC, 13 ordinary landscapes | .821 | .918 |
+
+- Wetland AUC is better in 49 of 58 wetland landscapes (median +.014) and in all 6 ordinary ones that could be
+  scored. Ten ordinary squares have too little wetland to score.
+- Sacramento Valley, CA falls from .817 to .583. Its wetland is mostly flooded rice on leveled fields. Brazoria, TX
+  (-.026) and Snohomish, WA (-.010) are the other losses over .005.
+- The arid and mountain West gains the most and stays the weakest: San Luis Valley, CO .659 to .780, High Plains,
+  KS .577 to .651, Flathead Valley, MT .787 to .839, Centennial Valley, MT .834 to .885. In San Luis Valley 2 % of
+  what is flagged is wetland.
+- Elevation does not lower the share of upland called wetland.
+
+The head is saved as `models/wetland-water-head-alphaearth-elev10m.npz` (75 inputs). The browser map does not use
+it: that needs the elevation read in the browser.
 
 ### The browser map
 
