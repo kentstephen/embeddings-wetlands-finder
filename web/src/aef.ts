@@ -16,9 +16,9 @@ export const YEAR_ORIGIN = 2017;
 
 /**
  * Below this the mosaic would read too much (every zoom step out is four times the chunks); nothing is read. A zoom 12
- * view is about 60 chunks, some 140 MB for a year.
+ * view is about 60 chunks, some 140 MB for a year; at 12.5 it is about half that.
  */
-export const MIN_ZOOM = 12;
+export const MIN_ZOOM = 12.5;
 
 /** The mosaic's grid (EPSG:4326, pixel registered) and its chunk size. */
 export const RES = 8.983111749910169e-5;

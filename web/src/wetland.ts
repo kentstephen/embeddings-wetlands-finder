@@ -281,7 +281,9 @@ export async function createWetland(head: WetHead, beforeId: () => string | unde
       // a new look redraws the tiles in hand, no read
       updateTriggers: { renderTile: `${look.lo}|${look.hi}|${look.alpha}|${look.water}` },
       visible: opts.visible,
-      minZoom: MIN_ZOOM,
+      // the layer's own floor is a whole zoom (a fractional one stops its tiles up to the next whole zoom); the page
+      // hides the layer between that and MIN_ZOOM
+      minZoom: Math.floor(MIN_ZOOM),
       // the view's chunks all asked at once: the workers read them a few at a time, every front before any rest
       maxRequests: 64,
       maxCacheSize: 1200,
@@ -331,5 +333,40 @@ export async function createWetland(head: WetHead, beforeId: () => string | unde
     return { loaded: n, rough, wanted: Math.max(0, (r1 - r0 + 1) * (c1 - c0 + 1)) };
   }
 
-  return { layer, valueAtPoint, loadedIn, pool };
+  /**
+   * The wet score (wetland and open water probabilities added) under the centers of a grid of longitudes by
+   * latitudes, from the planes in hand; 0 where a chunk is not scored yet or has no embedding.
+   */
+  function sampleWet(lons: Float64Array, lats: Float64Array, year: number, out: Float32Array) {
+    const w = lons.length, h = lats.length;
+    const pxs = new Int32Array(w);
+    for (let c = 0; c < w; c++) pxs[c] = Math.floor((lons[c]! - X0) / RES);
+    let lastR = -1, lastC = -1;
+    let p: Planes | undefined;
+    for (let r = 0; r < h; r++) {
+      const py = Math.floor((Y0 - lats[r]!) / RES);
+      const cr = Math.floor(py / CHUNK), iy = py - cr * CHUNK;
+      for (let c = 0; c < w; c++) {
+        const px = pxs[c]!;
+        const cc = Math.floor(px / CHUNK);
+        if (cr !== lastR || cc !== lastC) {
+          p = planes.get(keyOf(year, cr, cc));
+          lastR = cr;
+          lastC = cc;
+        }
+        let v = 0;
+        if (p) {
+          const ix = px - cc * CHUNK;
+          if (ix < p.w && iy < p.h) {
+            const i = iy * p.w + ix;
+            const a = p.planes[i]!;
+            if (a > 0) v = (a - 1) / WET_STEPS + p.planes[p.w * p.h + i]! / 255;
+          }
+        }
+        out[r * w + c] = v;
+      }
+    }
+  }
+
+  return { layer, valueAtPoint, loadedIn, pool, sampleWet };
 }

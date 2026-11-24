@@ -619,15 +619,33 @@ it: that needs the elevation read in the browser.
 
 ### The browser map
 
-`web/` is a Vite and TypeScript page that reads the AlphaEarth mosaic in the browser, scores the three-class head
-on the GPU and shades the result with deck.gl-raster and deck.gl-zarr over the USGS topo basemap. Wetland and
-water are drawn on the CARTO BluGrn ramp, one year at a time, from zoom 12 in. It uses AlphaEarth alone, so it
-carries the small-wetland limits above; a head with elevation is not in the map.
+`web/` is a Vite and TypeScript page that reads the AlphaEarth mosaic in the browser and scores the three-class head
+on the GPU, one year at a time, from zoom 12.5 in. It has two views, flipped with V.
+
+The first view gives every pixel one value and shades straight through wetland and water:
+
+    value = (how low the ground sits in the view + how much ground drains through it + the head's wet score) / 3
+
+Each part runs from 0 to 1. Low is the pixel's elevation between the view's 2nd and 98th percentile, turned over.
+Flow is the log of the pixels draining through it, worked out in a worker for each view: depressions are filled
+with a tiny slope (priority flood), each pixel drains to its steepest lower neighbor, the upstream pixels are
+counted, and a level water surface takes one count all over. Wet is the head's wetland and open water
+probabilities added. The first two are relative to what is on screen, so the picture rescales as the map moves.
+Elevation comes from the Terrarium terrain tiles on AWS Open Data (USGS 3DEP in the United States), read at about
+7 to 8 m a cell. The ramp is viridis, yellow for high ground that sheds water to purple for low wet ground that
+collects it.
+
+The second view is wetland and water alone on the CARTO BluGrn ramp over the USGS topo basemap.
+
+Both use the head taught on AlphaEarth alone, so they carry the small-wetland limits above; the head with elevation
+is not in the map. The flow knows only the ground inside the view, so a stream entering at the edge starts from
+nothing there.
 
     cd web && npm install && npx vite
 
-Keys: `[` and `]` change the year, W water, N NWI outlines, Space holds Sentinel-2 imagery, P imagery beside the
-model, F full screen, / search.
+Keys: `[` and `]` change the year, V the view, M only wet and water, H hide the picture, W water (second view),
+N NWI outlines, Space holds Sentinel-2 imagery, P imagery beside the model, F full screen, / search. A click
+outlines the 10 m pixel on both maps of the pair; the next click lets it go.
 
 ## What these numbers do not show
 
