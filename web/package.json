@@ -1,0 +1,32 @@
+{
+  "name": "embeddings-wetlands-finder-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.60",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "dependencies": {
+    "@deck.gl/core": "^9.4.2",
+    "@deck.gl/geo-layers": "^9.4.2",
+    "@deck.gl/layers": "^9.4.2",
+    "@deck.gl/maplibre": "^9.4.2",
+    "@developmentseed/deck.gl-raster": "^0.10.0",
+    "@developmentseed/deck.gl-zarr": "^0.10.0",
+    "@luma.gl/core": "^9.4.2",
+    "@luma.gl/engine": "^9.4.2",
+    "@luma.gl/shadertools": "^9.4.2",
+    "fzstd": "^0.1.1",
+    "maplibre-gl": "^6.19.0",
+    "numcodecs": "^0.3.2",
+    "pmtiles": "^4.5.0",
+    "zarrita": "^0.7.6"
+  }
+}

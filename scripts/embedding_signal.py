@@ -165,12 +165,18 @@ def get_json(url, params):
 def read_nwi(box):
     """NWI polygons that touch the box, as (shapely geometry, type code), larger polygons first."""
     from shapely.geometry import shape
-    out, seen, off = [], set(), 0
+    out, seen, off, page = [], set(), 0, 500
     while True:
-        d = get_json(f"{NWI}/Wetlands/MapServer/0/query", {
-            "geometry": ",".join(f"{v:.6f}" for v in box), "geometryType": "esriGeometryEnvelope", "inSR": 4326,
-            "outSR": 4326, "spatialRel": "esriSpatialRelIntersects", "outFields": "OBJECTID,ATTRIBUTE,WETLAND_TYPE",
-            "orderByFields": "OBJECTID", "resultOffset": off, "resultRecordCount": 500, "f": "geojson"})
+        try:
+            d = get_json(f"{NWI}/Wetlands/MapServer/0/query", {
+                "geometry": ",".join(f"{v:.6f}" for v in box), "geometryType": "esriGeometryEnvelope", "inSR": 4326,
+                "outSR": 4326, "spatialRel": "esriSpatialRelIntersects", "outFields": "OBJECTID,ATTRIBUTE,WETLAND_TYPE",
+                "orderByFields": "OBJECTID", "resultOffset": off, "resultRecordCount": page, "f": "geojson"})
+        except Exception:  # noqa: BLE001
+            if page <= 20:
+                raise
+            page //= 5  # the service answers HTTP 500 when a page of large polygons is too big; ask for fewer
+            continue
         fs = d.get("features", [])
         for f in fs:
             p = f["properties"]
@@ -178,7 +184,7 @@ def read_nwi(box):
                 continue
             seen.add(p["OBJECTID"])
             out.append((shape(f["geometry"]), TYPES.get(p["WETLAND_TYPE"], 8)))
-        if len(fs) < 500:
+        if len(fs) < page:
             break
         off += len(fs)
     return sorted(out, key=lambda t: -t[0].area)
