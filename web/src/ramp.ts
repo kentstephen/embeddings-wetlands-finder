@@ -1,16 +1,10 @@
 /**
- * CARTO Emrld remade as fine stops (five-min-away-redux): the same hue path, extended to pale sage at the light end.
- * Here its green half, teal to pale green: wetland probability, low to high. The navy end is left off so the low end
- * stays apart from open water's blue and does not sink into a dark basemap.
+ * CARTO BluGrn, its seven stops; the shader mixes between them, so the steps are continuous on screen.
+ * One line from land to open water, read as wetness: pale green where a pixel is barely wet, green where it is
+ * vegetated wetland, blue-teal where it is open water. Land itself has no color: the picture fades out before the
+ * pale end.
  */
-export const EMRLD = [
-  "#217a79", "#287f7b", "#2f857d", "#378a7f", "#3e9080", "#469581", "#4c9b82", "#51a183", "#56a785", "#5aad86",
-  "#5fb388", "#64b989", "#6abf8b", "#72c48c", "#79ca8e", "#81cf8f", "#88d591", "#8fdb93", "#96e096", "#9fe598",
-  "#abea9a", "#b9ed9d", "#c9f0a0", "#d9f3a7", "#e9f3bf",
-];
-
-/** Open water, less sure to sure: one blue hue, apart from the greens in hue and in lightness. */
-export const WATER = ["#1d4f9e", "#2a6fdb", "#5a97ee"];
+export const BLUGRN = ["#c4e6c3", "#96d2a4", "#6dbc90", "#4da284", "#36877a", "#266b6e", "#1d4f60"];
 
 export const hexToRgb = (h: string): [number, number, number] => [
   parseInt(h.slice(1, 3), 16) / 255,

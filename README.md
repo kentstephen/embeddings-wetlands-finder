@@ -47,6 +47,15 @@ the share of flagged pixels that NWI calls wetland when the cutoff is set to fin
   between squares stays wide (.82 to .996).
 - From a wet year to a dry year the ranking of pixels holds, but a fixed cutoff does not.
 - Against the one field research site inside a square, the head taught on NWI scores .966.
+- A three-class head (upland, vegetated wetland, open water) taught on 76 squares from AlphaEarth alone holds up
+  on squares it never saw: median wetland AUC .925, water AUC .936. It is weak in the arid West and in ordinary
+  landscapes with little wetland.
+- Small wetlands are where it falls short. Against four states' finer wetland maps, that head finds 23 to 50 % of
+  the wetlands under 2 acres when 5 % of dry ground is flagged.
+- Finer labels alone barely change that. Elevation does: a head taught inside the state with AlphaEarth and eleven
+  terrain numbers from 1 m lidar finds 49 to 85 % of them at the same price.
+- The national 10 m elevation model gives the same lift as 1 m lidar in Vermont and Massachusetts and most of it
+  in New Jersey and Delaware, so the gain does not depend on lidar coverage.
 
 ## Scripts
 
@@ -68,8 +77,13 @@ caches nothing. The only files written are the figures and the saved heads.
 | `naip_leafoff.py` | Do October aerial photos find wetland under trees where summer photos do not? | 15 min, 8 GB |
 | `many_squares.py` | Does a head taught on many landscapes carry to ones it has not seen? 46 squares. | 80 min, 5 GB |
 | `many_pictures.py` | Does reading the elevation itself still beat the summaries when taught on 46 squares? | 87 min, 20 GB |
+| `water_head.py` | Can one head tell upland, vegetated wetland and open water apart? 76 squares. Saves the head. | 32 min, 4 GB |
+| `small_wetlands.py` | How many wetlands of each size does the saved head find in Vermont's finer map? | 1 min, 2 GB |
+| `fine_labels.py` | Do finer state labels, or elevation, let a head find small wetlands? Four states, 66 squares. | 66 min, 11 GB (1 m lidar); 36 min, 10 GB (`--elev 10m`) |
 
 `ept.py` reads the USGS public Entwine Point Tile clouds and `pc.py` reads Microsoft Planetary Computer.
+`nwi_tiles.py` reads NWI polygons from the PMTiles copy on Source Cooperative, and `export_head.py` writes a
+saved head as JSON for the browser map in `web/`.
 
 ## Results
 
@@ -475,6 +489,89 @@ No public field-delineated wetland boundaries were found inside the Delmarva or 
 
 ![NWI beside the held-out probability from the AlphaEarth probe](figures/embedding_signal.png)
 
+### Water as a third class
+
+`water_head.py` teaches one head (64 to 64 to 3) on AlphaEarth alone to tell upland, vegetated wetland and open
+water apart. It is taught on four years (2018, 2020, 2022, 2024) over 76 squares of the lower 48 states (60
+wetland landscapes and 16 ordinary ones) and scored on 2024 in squares held out whole. Labels are NWI, read from
+the PMTiles copy on Source Cooperative.
+
+- Median wetland AUC in the 60 wetland landscapes: .925 (.939 for a two-class head on the same folds, so adding
+  the water class costs about .014).
+- Water AUC: .936.
+- Over all pixels, 76 % of what it calls wetland and 88 % of what it calls water agree with NWI.
+- It is weak in the arid West and in the ordinary landscapes, where wetland is a small share of the ground.
+
+The head is saved as `models/wetland-water-head-alphaearth.npz`.
+
+### Small wetlands against finer state maps
+
+NWI misses many small wetlands, so agreement with NWI says little about them. Four states publish finer wetland
+maps: Vermont, Massachusetts, New Jersey and Delaware. In Vermont's three held-out squares, 23 % of the state's
+1,899 mapped wetlands are in NWI.
+
+`small_wetlands.py` scores the saved national head against Vermont's map. At a cutoff of .08, which flags 6.3 % of
+dry ground:
+
+| Wetland size, acres | Found |
+|---|---|
+| under 0.1 | 16 % |
+| 0.1 to 0.5 | 28 % |
+| 0.5 to 2 | 37 % |
+| 2 to 10 | 55 % |
+| over 10 | 92 % |
+
+`fine_labels.py` then teaches heads inside each state and scores them on squares of that state held out whole.
+Each wetland of the state's map is one object, found when its mean score is over a cutoff that flags 5 % of the
+dry ground. Five heads are compared at that same price:
+
+- national: the saved three-class head.
+- NWI: taught in the state on NWI labels, AlphaEarth alone.
+- fine: the same, with the state's map joined to NWI as the label.
+- NWI + elev and fine + elev: the same two with eleven terrain numbers added.
+
+Wetlands under 2 acres found, with the terrain numbers from 1 m lidar:
+
+| State | Wetlands | national | NWI | fine | NWI + elev | fine + elev |
+|---|---|---|---|---|---|---|
+| Vermont | 1,542 | 26 % | 28 % | 31 % | 41 % | 49 % |
+| Massachusetts | 1,448 | 50 % | 59 % | 66 % | 85 % | 83 % |
+| New Jersey | 352 | 23 % | 25 % | 26 % | 49 % | 50 % |
+| Delaware | 532 | 38 % | 40 % | 43 % | 71 % | 66 % |
+
+The same, with the terrain numbers from the national 3DEP 1/3 arc-second model (about 10 m). The three columns
+without elevation are the same heads as above:
+
+| State | NWI + elev, 1 m | NWI + elev, 10 m | fine + elev, 1 m | fine + elev, 10 m |
+|---|---|---|---|---|
+| Vermont | 41 % | 41 % | 49 % | 49 % |
+| Massachusetts | 85 % | 86 % | 83 % | 83 % |
+| New Jersey | 49 % | 41 % | 50 % | 39 % |
+| Delaware | 71 % | 68 % | 66 % | 63 % |
+
+- Being local and having finer labels each add a few points. Elevation adds 13 to 31.
+- 10 m elevation matches 1 m lidar in Vermont and Massachusetts. In the flat coastal plain it gives up 3 points in
+  Delaware and 8 to 11 in New Jersey, and still beats every head without elevation.
+- The smallest wetlands stay hard. In Vermont the best head finds 29 % of those under 0.1 acre.
+- Across states, a head with elevation taught in another state beats the national head in 10 of 12 pairings and
+  falls short of the state's own in 11 of 12. With 10 m elevation, under 2 acres: Vermont 31 to 45 % from the
+  other three states against 49 % from its own and 26 % national; Massachusetts 53 to 74 % against 83 % and 50 %;
+  New Jersey 21 to 58 % against 39 % and 23 %; Delaware 26 to 45 % against 63 % and 38 %.
+
+Both runs teach on the same squares. Two Massachusetts squares with no 1 m elevation are left out of both.
+
+### The browser map
+
+`web/` is a Vite and TypeScript page that reads the AlphaEarth mosaic in the browser, scores the three-class head
+on the GPU and shades the result with deck.gl-raster and deck.gl-zarr over the USGS topo basemap. Wetland and
+water are drawn on the CARTO BluGrn ramp, one year at a time, from zoom 12 in. It uses AlphaEarth alone, so it
+carries the small-wetland limits above; a head with elevation is not in the map.
+
+    cd web && npm install && npx vite
+
+Keys: `[` and `]` change the year, W water, N NWI outlines, Space holds Sentinel-2 imagery, P imagery beside the
+model, F full screen, / search.
+
 ## What these numbers do not show
 
 - The labels are NWI, so almost every score is agreement with NWI. A wetland NWI missed counts as upland here.
@@ -482,4 +579,6 @@ No public field-delineated wetland boundaries were found inside the Delmarva or 
 - Most tests use three squares. The 46-square test covers the lower 48 states only, with squares picked by hand
   for known wetland landscapes, and some held-out squares still score far below the median.
 - NWI's line is least exact at the boundary, which is also where the scores are lowest.
+- The small-wetland tests score against state maps, which are finer than NWI and still maps, not field visits.
+  They cover four northeastern and mid-Atlantic states, and the heads with elevation are taught inside the state.
 - Each number is a single fit. Differences of a few thousandths between inputs are inside the noise.

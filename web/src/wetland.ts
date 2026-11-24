@@ -8,7 +8,7 @@ import { CHUNK, MIN_ZOOM, openMosaic, RES, X0, Y0, YEAR_ORIGIN } from "./aef";
 import type { FillNet } from "./fill";
 import { waterOf, type WetHead, wetOf, WET_STEPS } from "./head";
 import { Pool } from "./pool";
-import { EMRLD, glslRamp, WATER } from "./ramp";
+import { BLUGRN, glslRamp } from "./ramp";
 
 /** One chunk on the GPU: a year's wetland and water bytes side by side (rg8uint). */
 type TileData = MinimalTileData & { key: string; tex: Texture };
@@ -33,8 +33,9 @@ type Planes = { planes: Uint8Array; w: number; h: number; rough?: boolean };
 export type Look = { lo: number; hi: number; alpha: number; water: boolean };
 
 /**
- * A year per pixel. Where open water is the most probable class: blue, deeper where less sure. Else wetland
- * probability on the green ramp over lo..hi, clear at lo and solid a third of the way up; under lo nothing is drawn.
+ * A year per pixel, the score along the whole ramp. Vegetated wetland runs over the ramp's pale-to-green half by how
+ * sure it is (lo at the pale end, hi at the green middle); open water runs over the teal-to-blue part the same way;
+ * a pixel that is some of each sits between. Under lo nothing is drawn, so land has no color.
  * The probabilities are mixed between the four nearest pixels, so the picture stays smooth zoomed past 10 m.
  */
 const WetColor = {
@@ -48,8 +49,7 @@ const WetColor = {
   inject: {
     "fs:#decl": `precision highp usampler2D;
 uniform highp usampler2D wetTex;
-${glslRamp("emrld", EMRLD)}
-${glslRamp("waterRamp", WATER)}
+${glslRamp("blugrn", BLUGRN)}
 // wetland and water probability at a pixel; x < 0 where there is no embedding
 vec2 probAt(ivec2 p, ivec2 size) {
   uvec2 c = texelFetch(wetTex, clamp(p, ivec2(0), size - 1), 0).rg;
@@ -67,15 +67,16 @@ vec2 probAt(ivec2 p, ivec2 size) {
       vec2 c = probAt(p0 + ivec2(0, 1), size), d = probAt(p0 + ivec2(1, 1), size);
       vec2 pr = near;
       if (a.x >= 0.0 && b.x >= 0.0 && c.x >= 0.0 && d.x >= 0.0) pr = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-      float up = max(1.0 - pr.x - pr.y, 0.0);
-      if (pr.y >= pr.x && pr.y >= up) {
-        if (wet.water < 0.5) discard;
-        color = vec4(waterRamp(smoothstep(0.4, 0.95, pr.y)), wet.alpha * mix(0.55, 1.0, smoothstep(0.34, 0.8, pr.y)));
-      } else {
-        float t = (pr.x - wet.lo) / max(wet.hi - wet.lo, 1e-4);
-        if (t <= 0.0) discard;
-        color = vec4(emrld(t), wet.alpha * smoothstep(0.0, 0.33, t));
-      }
+      float pw = wet.water > 0.5 ? pr.y : 0.0;
+      if (wet.water < 0.5 && pr.y >= pr.x && pr.y >= max(1.0 - pr.x - pr.y, 0.0)) discard;
+      float total = pw + pr.x;
+      if (total <= wet.lo) discard;
+      // The score runs along the whole ramp. Wetland takes the pale-to-green half, pale where the score is low and
+      // green where it is sure; open water takes the teal-to-blue part the same way. A bank between water and dry land
+      // stays on the water side as it fades, so it never passes through wetland's green.
+      float sure = clamp((total - wet.lo) / max(wet.hi - wet.lo, 1e-4), 0.0, 1.0);
+      float t = mix(0.5 * sure, 0.65 + 0.35 * sure, pw / max(total, 1e-4));
+      color = vec4(blugrn(t), wet.alpha * smoothstep(wet.lo, wet.lo + 0.08, total));
     `,
   },
   uniformTypes: { lo: "f32", hi: "f32", alpha: "f32", water: "f32" },
