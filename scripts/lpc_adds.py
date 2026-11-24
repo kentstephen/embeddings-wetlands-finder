@@ -215,7 +215,7 @@ def main():
     ap.add_argument("--only", action="append")
     a = ap.parse_args()
     warnings.filterwarnings("ignore")
-    peak = E.guard(14)
+    peak = E.guard(28)  # the across-squares fits with a 128-number embedding passed 15 GB
     E.HALF_KM = a.half_km
     if a.only:
         E.SQUARES = {k: v for k, v in E.SQUARES.items() if k in a.only}
@@ -259,6 +259,9 @@ def main():
         XR["points, own scale"] = loo(lambda s, ok: s["Pz"][ok])
         XR["terrain + points"] = loo(lambda s, ok: np.concatenate([s["T"][ok], s["P"][ok]], 1))
         XR["terrain + points, own scale"] = loo(lambda s, ok: np.concatenate([s["T"][ok], s["Pz"][ok]], 1))
+        for col in xcols:
+            for n in S:
+                print(f"    across, {n}, {col}: " + "; ".join(f"{au:.3f} ({pr:.0%})" for au, pr in XR[col][n].values()), flush=True)
         print(f"  across squares: terrain and points done, memory {peak():.1f} GB", flush=True)
     for model in E.MODELS:
         hnd = E.open_model(model)
@@ -280,6 +283,8 @@ def main():
                 XR[col] = H.leave_one_out({n: (np.concatenate([Em[n][0]] + [S[n][k][Em[n][1]] for k in keys], 1), Em[n][1])
                                            for n in S}, S)
                 xcols.append(col)
+                for n in S:  # shown as they come, so a stopped run keeps what it finished
+                    print(f"    across, {n}, {col}: " + "; ".join(f"{au:.3f} ({pr:.0%})" for au, pr in XR[col][n].values()), flush=True)
             print(f"  across squares: {model} done, memory {peak():.1f} GB", flush=True)
         del Em
 

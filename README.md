@@ -36,6 +36,10 @@ the share of flagged pixels that NWI calls wetland when the cutoff is set to fin
 - A small network that reads the elevation itself, in place of eleven summaries of it, does a little better:
   +.001 to +.005 AUC on top of an embedding inside a square, and more in the flat Delmarva square and under its
   trees (+.014 to +.021). Across squares it helps with AlphaEarth and not consistently with OlmoEarth.
+  Taught on 46 squares it adds nothing on top of an embedding in the median square (+.001 or less), and +.010
+  with no embedding.
+- The lidar point numbers do not carry between squares: alone they score near chance in two of three, and on
+  top of an embedding with terrain they help in one square and hurt in another.
 - Carrying a head to a square it has never seen is the weak spot. The share of flagged pixels that are wetland
   falls from 72 to 76 % to 41 to 60 %.
 - Teaching on more landscapes closes most of that gap. With 46 squares across the lower 48 states, a head scored
@@ -53,7 +57,7 @@ caches nothing. The only files written are the figures and the saved heads.
 |---|---|---|
 | `embedding_signal.py` | Is there wetland signal in the embeddings alone? Linear probe. | 2 min, 7 GB |
 | `terrain_adds.py` | Does 1 m lidar terrain add to them? Small head (one hidden layer of 64). | 15 min, 8 GB |
-| `lpc_adds.py` | Do the raw lidar points add more? 5.9 billion points, 31 GB read. | 66 min, 7 GB |
+| `lpc_adds.py` | Do the raw lidar points add more, inside a square and across squares? 5.9 billion points, 31 GB read. | 66 min with two workers, 17 GB |
 | `imagery_adds.py` | Do summer aerial photos (NAIP) add more? | 25 min, 9 GB |
 | `leafoff_adds.py` | Do the embeddings already hold what leaf-off Sentinel-2 shows? | 8 min, 8 GB |
 | `wetland_head.py` | Does a head taught in two squares work in the third? Saves the heads. | 8 min, 10 GB |
@@ -63,6 +67,7 @@ caches nothing. The only files written are the figures and the saved heads.
 | `patch_head.py` | Does a network that reads the elevation itself beat the eleven terrain summaries? | 63 min, 13 GB |
 | `naip_leafoff.py` | Do October aerial photos find wetland under trees where summer photos do not? | 15 min, 8 GB |
 | `many_squares.py` | Does a head taught on many landscapes carry to ones it has not seen? 46 squares. | 80 min, 5 GB |
+| `many_pictures.py` | Does reading the elevation itself still beat the summaries when taught on 46 squares? | 87 min, 20 GB |
 
 `ept.py` reads the USGS public Entwine Point Tile clouds and `pc.py` reads Microsoft Planetary Computer.
 
@@ -123,7 +128,8 @@ Notes on the inputs:
   classed only into ground, water and noise, so vegetation structure comes from height above the elevation
   model, not from class codes. Intensity ranges differ widely between the three projects. All 5.9 billion points
   over the three squares were read with no failed nodes. Points fall on 99.8 % of pixels in Delmarva and Lee and
-  90.6 % in Stutsman (81.5 % with a ground return), where open water returns little.
+  90.6 % in Stutsman (81.5 % with a ground return), where open water returns little. Across squares the
+  point numbers do not carry (see the head taught in two squares).
 - Aerial photos: NAIP read at 2 m and reduced to eleven numbers per pixel, mostly from 2023 summer flights. Lee
   is filled in places from October 2018 and July 2014. A network that reads the photo itself was not tested.
 - Sentinel-2: the median of up to 12 clear scenes of 2024 per season, nine numbers per pixel.
@@ -171,6 +177,35 @@ The pictures gain most in Delmarva, the flat square, where the summaries were we
 the other gains are near the .002 run-to-run noise. Each number is one fit of a network with one set of choices
 (picture size, depth, eight epochs); none of them was tuned.
 
+### Reading the elevation itself, taught on many squares
+
+The same network and the same two pictures, with the 46 squares of the many-squares test in place of three:
+16,000 pixels kept per square, squares dealt into six folds, each square scored by a head taught only on the
+other folds' squares. Median over the 46 held-out squares, lowest to highest in brackets.
+
+| Input | AUC | Flagged that is wetland | Within 30 m | Forest |
+|---|---|---|---|---|
+| Summaries | .919 (.667 to .982) | 61 % | .724 | .907 |
+| Pictures | .924 (.760 to .992) | 66 % | .726 | .912 |
+| AlphaEarth + summaries | .952 (.772 to .996) | 78 % | .766 | .931 |
+| AlphaEarth + pictures | .953 (.836 to .997) | 79 % | .764 | .939 |
+| OlmoEarth + summaries | .951 (.616 to .997) | 76 % | .758 | .933 |
+| OlmoEarth + pictures | .952 (.666 to .996) | 76 % | .767 | .932 |
+
+Squares where pictures beat summaries:
+
+| Input | AUC | Flagged that is wetland |
+|---|---|---|
+| No embedding | 38 of 46, median +.010 | 40 of 46, median +4 points |
+| With AlphaEarth | 30 of 46, median +.001 | 28 of 46, median 0 |
+| With OlmoEarth | 26 of 46, median .000 | 25 of 46, median 0 |
+
+With no embedding the pictures are better in most squares, by a little. On top of an embedding the median square
+does not change, so the gain seen across the three squares above does not hold up over 46. What the pictures do
+change is the worst case with AlphaEarth: the lowest score rises from .772 to .836, because Merced, California
+(1 % of the land is wetland) goes from .772 to .840. Single squares move both ways by more than the median: Sandhills +.043 and
+Cheyenne Bottoms -.043 with OlmoEarth. One fit each, nothing tuned.
+
 ### October aerial photos over Lee
 
 NAIP is flown in summer nearly everywhere. Over the Lee square two flights were late, 16 and 26 October 2018 and
@@ -208,6 +243,30 @@ Small head, vegetated wetland vs upland. No pixel of the scored square is seen i
 Terrain numbers are in meters and slopes, so they carry to the two squares with relief and not to the flat
 coastal plain. TESSERA alone does not carry between these squares. Within 30 m of the NWI line the best inputs
 score .75 to .84.
+
+Lidar points across squares. The same test with the 38 point numbers added, on the pixels that have points.
+"Own scale" rescales every point number inside its own square before teaching, since intensity and density
+differ between the three flights.
+
+| Input | Delmarva | Stutsman | Lee |
+|---|---|---|---|
+| Terrain | .853 (39 %) | .953 (43 %) | .931 (47 %) |
+| Points | .476 (15 %) | .804 (12 %) | .541 (10 %) |
+| Points, own scale | .666 (19 %) | .364 (5 %) | .553 (11 %) |
+| Terrain + points | .878 (44 %) | .953 (48 %) | .879 (32 %) |
+| AlphaEarth + terrain | .934 (61 %) | .950 (40 %) | .945 (53 %) |
+| AlphaEarth + terrain + points | .924 (60 %) | .961 (50 %) | .894 (34 %) |
+| The same, own scale | .932 (60 %) | .946 (39 %) | .931 (46 %) |
+| OlmoEarth + terrain | .942 (61 %) | .940 (35 %) | .916 (39 %) |
+| OlmoEarth + terrain + points | .939 (61 %) | .957 (46 %) | .910 (37 %) |
+| The same, own scale | .937 (61 %) | .919 (29 %) | .924 (43 %) |
+
+Points alone do not carry between squares: near chance in Delmarva and Lee, and rescaling inside each square
+turns Stutsman from .80 to .36, below chance. On top of an embedding with terrain they help in Stutsman (+.011
+to +.017, 10 points more of flagged pixels being wetland) and hurt in Lee (-.006 to -.051). Rescaling does not
+fix it; it trades the Stutsman gain for part of the Lee loss. The rows without points differ from the table
+above by up to .02 for the same inputs (a second fit, on slightly fewer pixels), so across squares only
+differences well over .02 mean anything.
 
 The heads taught on all three squares are saved in `models/` (6 to 47 KB each) with the standardization folded
 into the first layer, so scoring needs only numpy:
