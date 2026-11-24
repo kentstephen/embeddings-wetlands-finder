@@ -45,8 +45,15 @@ def read_dem(box):
     from pyproj import Transformer
     from rasterio.enums import Resampling
     from rasterio.windows import from_bounds
-    items = E.get_json(TNM, {"datasets": "Digital Elevation Model (DEM) 1 meter", "bbox": ",".join(f"{v:.5f}" for v in box),
-                             "prodFormats": "GeoTIFF", "max": 100})["items"]
+    for attempt in range(6):  # the catalog sometimes answers with a short error instead of the tile list
+        d = E.get_json(TNM, {"datasets": "Digital Elevation Model (DEM) 1 meter", "bbox": ",".join(f"{v:.5f}" for v in box),
+                             "prodFormats": "GeoTIFF", "max": 100})
+        if d.get("items"):
+            break
+        time.sleep(5 + 10 * attempt)
+    else:
+        raise RuntimeError(f"3DEP catalog gave no tiles for {box}: {str(d)[:200]}")
+    items = d["items"]
     items.sort(key=lambda i: i["publicationDate"], reverse=True)
     z = crs = None
     used = []
