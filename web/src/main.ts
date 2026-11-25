@@ -45,7 +45,11 @@ const [head, fill] = (await Promise.all([
 
 // view: "ground" is one value per pixel (low in the view, draining ground, wet score); "wet" is wetland and water alone
 const st = { year: head.years[head.years.length - 1]!, lo: 0.08, alpha: 0.9, water: true, nwi: false, labels: true, holding: false, pair: false,
-  view: "ground" as "ground" | "wet", galpha: 1, hidden: false, mask: false, picked: null as [number, number] | null };
+  view: "ground" as "ground" | "wet", galpha: 1, hidden: false, dry: 1, dryBack: 1, picked: null as [number, number] | null };
+/** Ground that is not wet or water (wet score under the "Wet from" cutoff) is drawn at st.dry: 1 in full, 0 clear to the basemap. */
+const masked = () => st.dry === 0;
+/** The picture covers the dry ground enough that things drawn over it should be white. */
+const covered = () => st.dry >= 0.5;
 /** The strength slider's value for the view on the map: the ground picture and the wetland picture each keep their own. */
 const strength = () => (st.view === "ground" ? st.galpha : st.alpha);
 
@@ -70,6 +74,7 @@ document.body.insertAdjacentHTML(
     </div>
     <div class="key"><div class="bar ramp"></div><div class="ticks" id="ticks"></div></div>
     <label class="at-row" id="loRow"><span class="at-lab">Wet from</span><input id="lo" type="range" min="5" max="90" step="1"><span class="at-wtxt" id="loVal"></span></label>
+    <label class="at-row" id="dryRow"><span class="at-lab">Dry ground</span><input id="dry" type="range" min="0" max="100" step="1"><span class="at-wtxt" id="dryVal"></span></label>
     <label class="at-row"><span class="at-lab">Strength</span><input id="alpha" type="range" min="10" max="100" step="1"><span class="at-wtxt" id="alphaVal"></span></label>
     <div class="readout" id="read">&nbsp;</div>
     <div class="status" id="status"></div>
@@ -98,7 +103,7 @@ await new Promise<void>((ok) => (map.loaded() ? ok() : map.once("load", () => ok
 
 const firstLabel = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
 /** The outline's color: white over the ground picture (it reads against the whole yellow-to-purple ramp), orange over the pale topo map. */
-const nwiColor = () => (st.view === "ground" && !st.hidden && !st.mask ? "#ffffff" : "#d9730d");
+const nwiColor = () => (st.view === "ground" && !st.hidden && covered() ? "#ffffff" : "#d9730d");
 /** The NWI outlines on a map, under its labels: one stroke in its own color, no casing. */
 function addNwi(m: maplibregl.Map, before?: string) {
   m.addSource("nwi", { type: "vector", url: `pmtiles://${NWI_TILES}` });
@@ -142,7 +147,7 @@ function showPicked(m: maplibregl.Map, overPicture: boolean) {
   m.moveLayer("picked");
 }
 function drawPicked() {
-  showPicked(map, st.view === "ground" && !st.hidden && !st.mask && !st.holding && map.getZoom() >= MIN_ZOOM);
+  showPicked(map, st.view === "ground" && !st.hidden && covered() && !st.holding && map.getZoom() >= MIN_ZOOM);
   // its style is in (loaded() is also false while its tiles are still coming, which would skip the release)
   if (map2 && map2Ready) showPicked(map2, false);
 }
@@ -180,7 +185,7 @@ function status() {
 function draw() {
   // in the ground view the scores are still read and kept, drawn with no strength: the ground picture takes them
   const look: Look = { lo: st.lo, hi: HI, alpha: st.view === "ground" ? 0 : st.alpha, water: st.water };
-  ground.set({ on: groundOn(), year: st.year, opacity: st.galpha, mask: st.mask ? st.lo : null });
+  ground.set({ on: groundOn(), year: st.year, opacity: st.galpha, mask: st.dry < 1 ? st.lo : null, dry: st.dry });
   if (map.getLayer("nwi-line")) map.setPaintProperty("nwi-line", "line-color", nwiColor());
   // while Space is held the imagery covers the map and the picture steps aside
   showS2(map, st.holding ? s2YearFor(st.year) : null);
@@ -195,6 +200,8 @@ function paint() {
   $("year").textContent = String(st.year);
   $("loVal").textContent = st.lo.toFixed(2).slice(1);
   $("alphaVal").textContent = `${Math.round(strength() * 100)} %`;
+  $("dryVal").textContent = `${Math.round(st.dry * 100)} %`;
+  $<HTMLInputElement>("dry").value = String(Math.round(st.dry * 100));
   $<HTMLInputElement>("lo").value = String(Math.round(st.lo * 100));
   $<HTMLInputElement>("alpha").value = String(Math.round(strength() * 100));
   $("hy").textContent = String(st.year);
@@ -210,13 +217,14 @@ function paint() {
   $("ticks").innerHTML = gr
     ? '<span style="left:0">high, sheds water, dry</span><span style="left:100%">low, collects water, wet</span>'
     : '<span style="left:0">barely wet</span><span style="left:50%">wetland</span><span style="left:100%">open water</span>';
-  // the cutoff is the wetland view's own, and the mask's
-  $("loRow").style.display = gr && !st.mask ? "none" : "";
+  // the cutoff is the wetland view's own, and says what counts as dry once dry ground is turned down
+  $("loRow").style.display = gr && st.dry === 1 ? "none" : "";
+  $("dryRow").style.display = gr ? "" : "none";
   const rampCss = `linear-gradient(90deg, ${(gr ? GROUND_RAMP : BLUGRN).join(", ")})`;
   for (const e of document.querySelectorAll<HTMLElement>(".ramp")) e.style.background = rampCss;
   $("keys").innerHTML =
     `<kbd>[</kbd><kbd>]</kbd>&nbsp;year &nbsp; <kbd>V</kbd>&nbsp;view, ${gr ? "ground and wet as one" : "wetland and water alone"} &nbsp; ` +
-    (gr ? `<kbd>M</kbd>&nbsp;only wet and water, ${on(st.mask)} &nbsp; ` : `<kbd>W</kbd>&nbsp;water, ${on(st.water)} &nbsp; `) + `<kbd>N</kbd>&nbsp;NWI outlines (${nwiColor() === "#ffffff" ? "white" : "orange"}), ${on(st.nwi)} &nbsp; <kbd>H</kbd>&nbsp;${st.hidden ? "show" : "hide"} the picture &nbsp; ` +
+    (gr ? `<kbd>M</kbd>&nbsp;only wet and water, ${on(masked())} &nbsp; ` : `<kbd>W</kbd>&nbsp;water, ${on(st.water)} &nbsp; `) + `<kbd>N</kbd>&nbsp;NWI outlines (${nwiColor() === "#ffffff" ? "white" : "orange"}), ${on(st.nwi)} &nbsp; <kbd>H</kbd>&nbsp;${st.hidden ? "show" : "hide"} the picture &nbsp; ` +
     `<kbd>Space</kbd>&nbsp;hold for Sentinel-2 &nbsp; <kbd>P</kbd>&nbsp;pair &nbsp; <kbd>F</kbd>&nbsp;full screen &nbsp; <kbd>/</kbd>&nbsp;search`;
   $<HTMLButtonElement>("prev").disabled = st.year === head.years[0];
   $<HTMLButtonElement>("next").disabled = st.year === head.years[head.years.length - 1];
@@ -345,6 +353,21 @@ $("lo").oninput = () => {
   paint();
   draw();
 };
+$("dry").oninput = () => {
+  st.dry = Number($<HTMLInputElement>("dry").value) / 100;
+  paint();
+  draw();
+};
+// a double click (or double tap) on a slider puts it back where it starts
+const DEFAULTS: Record<string, () => number> = { lo: () => 8, dry: () => 100, alpha: () => (st.view === "ground" ? 100 : 90) };
+for (const [id, start] of Object.entries(DEFAULTS)) {
+  const e = $<HTMLInputElement>(id);
+  e.title = "Double click to reset";
+  e.ondblclick = () => {
+    e.value = String(start());
+    e.dispatchEvent(new Event("input"));
+  };
+}
 $("alpha").oninput = () => {
   if (st.view === "ground") st.galpha = Number($<HTMLInputElement>("alpha").value) / 100;
   else st.alpha = Number($<HTMLInputElement>("alpha").value) / 100;
@@ -368,7 +391,12 @@ window.addEventListener("keydown", (e) => {
   else if (k === "]") step(1);
   else if (k === "w") toggle("water");
   else if (k === "m") {
-    st.mask = !st.mask;
+    // M takes dry ground straight to clear, and back to where the slider was
+    if (masked()) st.dry = st.dryBack || 1;
+    else {
+      st.dryBack = st.dry;
+      st.dry = 0;
+    }
     paint();
     draw();
   } else if (k === "h") {

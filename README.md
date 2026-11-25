@@ -60,6 +60,9 @@ the share of flagged pixels that NWI calls wetland when the cutoff is set to fin
   numbers finds 39 to 70 % of the wetlands under 2 acres in the four states, against 23 to 50 % without elevation,
   at the same 5 % of dry ground flagged. Against NWI in held-out squares the gain is small (median wetland AUC
   .925 to .943), and one square of rice fields gets much worse.
+- In that national head 1 m lidar does no better than the 10 m elevation. Taught on the same pixels of the 72
+  squares that have both, they match against NWI (median wetland AUC .941 and .944, .932 without elevation), and
+  the 10 m head finds as many or more of the small wetlands in all four states.
 
 ## Scripts
 
@@ -85,6 +88,7 @@ caches nothing. The only files written are the figures and the saved heads.
 | `small_wetlands.py` | How many wetlands of each size does the saved head find in Vermont's finer map? | 1 min, 2 GB |
 | `fine_labels.py` | Do finer state labels, or elevation, let a head find small wetlands? Four states, 66 squares. | 66 min, 11 GB (1 m lidar); 36 min, 10 GB (`--elev 10m`) |
 | `national_elev.py` | Does 10 m elevation help one national head, on NWI pixels and on small wetlands? 76 squares. Saves the head. | 57 min, 9 GB |
+| `national_lidar.py` | In one national head, does 1 m lidar beat the 10 m elevation? The same pixels of the 72 squares that have both. | 104 min, 10 GB |
 
 `ept.py` reads the USGS public Entwine Point Tile clouds and `pc.py` reads Microsoft Planetary Computer.
 `nwi_tiles.py` reads NWI polygons from the PMTiles copy on Source Cooperative, and `export_head.py` writes a
@@ -617,6 +621,46 @@ Pixels against NWI, six folds, each square scored by heads that never saw it:
 The head is saved as `models/wetland-water-head-alphaearth-elev10m.npz` (75 inputs). The browser map does not use
 it: that needs the elevation read in the browser.
 
+### 1 m lidar against 10 m elevation in the national head
+
+`national_lidar.py` teaches the same head three times on the same pixels: AlphaEarth alone, with the eleven terrain
+numbers from the 10 m elevation, and with the same numbers from 1 m lidar (read at 2 m). A pixel is kept only where
+both elevations are real ground within 300 m, the widest window the terrain numbers read. 72 of the 76 squares have
+1 m elevation; Blackwater, FL, Willamette Valley, OR, Snohomish, WA and Lake Michigan shore, WI do not and are left
+out.
+
+Pixels against NWI in squares held out whole (six folds), median:
+
+| | alone | with 10 m | with 1 m |
+|---|---|---|---|
+| Wetland AUC, 55 wetland landscapes | .932 | .944 | .941 |
+| Wetland AUC, 6 ordinary landscapes | .892 | .905 | .901 |
+| Flagged that is wetland, wetland landscapes | 70 % | 74 % | 70 % |
+| Open water AUC, wetland landscapes | .933 | .949 | .962 |
+| Open water AUC, ordinary landscapes | .823 | .908 | .920 |
+
+Square by square, 1 m against 10 m changes wetland AUC by a median of +.001 and is better in 31 of 55 wetland
+landscapes and 3 of 6 ordinary ones. Open water is the one place 1 m leads.
+
+Wetlands under 2 acres of the four states' finer maps found, with 5 % of dry ground flagged, by heads taught on all
+72 squares:
+
+| State (wetlands) | alone | with 10 m | with 1 m |
+|---|---|---|---|
+| Vermont (1,542) | 26 % | 42 % | 38 % |
+| Massachusetts (1,448) | 49 % | 70 % | 70 % |
+| New Jersey (352) | 23 % | 55 % | 48 % |
+| Delaware (532) | 35 % | 67 % | 59 % |
+
+- Taught inside one state, 1 m lidar led 10 m by 8 to 11 points in New Jersey. Taught across the country that lead
+  is gone.
+- The two differ most in a few flat, managed or arid squares, and not in one direction (wetland AUC alone, 10 m,
+  1 m): San Luis Valley, CO .703, .545, .691; Brazoria, TX .871, .796, .853; Croatan, NC .849, .879, .799;
+  Sacramento Valley, CA .918, .897, .855.
+- The 1 m numbers are worked out at 2 m and averaged to the 10 m pixel, as everywhere here, so detail finer than a
+  pixel is not what is being tested.
+- The small wetlands are still those of four Northeast and mid-Atlantic states.
+
 ### The browser map
 
 `web/` is a Vite and TypeScript page that reads the AlphaEarth mosaic in the browser and scores the three-class head
@@ -646,6 +690,10 @@ nothing there.
 Keys: `[` and `]` change the year, V the view, M only wet and water, H hide the picture, W water (second view),
 N NWI outlines, Space holds Sentinel-2 imagery, P imagery beside the model, F full screen, / search. A click
 outlines the 10 m pixel on both maps of the pair; the next click lets it go.
+
+In the first view the "Dry ground" slider sets how strongly the pixels that are not wetland or water (wet score
+under the "Wet from" cutoff) are drawn, from full down to clear over the basemap; M is its clear end. A double click
+on any slider puts it back where it starts.
 
 ## What these numbers do not show
 

@@ -48,8 +48,9 @@ export function createGround(map: maplibregl.Map, sampleWet: SampleWet, before: 
   let year = 0;
   let on = true;
   let opacity = 1;
-  // the mask: only pixels whose wet score is at least this are drawn; null draws every pixel
+  // pixels whose wet score is under the cutoff are drawn at the strength `dry` (0 clear, 1 full); null draws every pixel in full
   let mask: number | null = null;
+  let dry = 0;
   // the parts as last drawn, for the readout
   let parts: { low: Float32Array; flo: Float32Array; wet: Float32Array } | null = null;
   let wetBuf: Float32Array | null = null;
@@ -127,6 +128,7 @@ export function createGround(map: maplibregl.Map, sampleWet: SampleWet, before: 
     }
     const cx = canvas.getContext("2d")!;
     const img = cx.createImageData(w, h);
+    const faint = Math.round(dry * 255);
     const px = img.data;
     for (let i = 0; i < N; i++) {
       const low = 1 - Math.min(1, Math.max(0, (elev[i]! - lo) / span));
@@ -138,7 +140,7 @@ export function createGround(map: maplibregl.Map, sampleWet: SampleWet, before: 
       px[4 * i] = lut[k]!;
       px[4 * i + 1] = lut[k + 1]!;
       px[4 * i + 2] = lut[k + 2]!;
-      px[4 * i + 3] = mask === null || wt >= mask ? 255 : 0;
+      px[4 * i + 3] = mask === null || wt >= mask ? 255 : faint;
     }
     cx.putImageData(img, 0, 0);
     const west = lonOf(x0, z), east = lonOf(x0 + w / TILE, z), north = latOf(y0, z), south = latOf(y0 + h / TILE, z);
@@ -184,8 +186,9 @@ export function createGround(map: maplibregl.Map, sampleWet: SampleWet, before: 
     return { low, flow, wet, value: (low + flow + wet) / 3, elev: s.elev[i]! };
   }
 
-  function set(o: { on?: boolean; year?: number; opacity?: number; mask?: number | null }) {
-    const wasOn = on, wasYear = year, wasMask = mask;
+  function set(o: { on?: boolean; year?: number; opacity?: number; mask?: number | null; dry?: number }) {
+    const wasOn = on, wasYear = year, wasMask = mask, wasDry = dry;
+    if (o.dry !== undefined) dry = o.dry;
     if (o.mask !== undefined) mask = o.mask;
     if (o.on !== undefined) on = o.on;
     if (o.year !== undefined) year = o.year;
@@ -195,7 +198,7 @@ export function createGround(map: maplibregl.Map, sampleWet: SampleWet, before: 
       map.setPaintProperty(SRC, "raster-opacity", opacity);
     }
     if (on && (!wasOn || year !== wasYear)) ask();
-    else if (on && mask !== wasMask) compose();
+    else if (on && (mask !== wasMask || dry !== wasDry)) compose();
   }
 
   return { ask, refresh, set, valueAt, state };
