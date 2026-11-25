@@ -5,15 +5,21 @@ import type { GroundAnswer, GroundAsk } from "./ground.worker";
 /**
  * One value for every pixel of the view, shaded straight through wetland and water:
  *
- *   value = (how low the ground sits in the view + how much ground drains through it + the head's wet score) / 3
+ *   value = (how low the ground sits in the view + the head's wet score) / 2
  *
- * each part from 0 to 1. Low: the pixel's elevation between the view's 2nd and 98th percentile, turned over. Flow:
+ * With FLOW on, how much ground drains through the pixel is a third part and the sum is over 3. It is off: the flow
+ * knows only the ground in the view, draws one-pixel threads, and on flat ground follows paths the fill makes up.
+ *
+ * Each part runs from 0 to 1. Low: the pixel's elevation between the view's 2nd and 98th percentile, turned over. Flow:
  * log10 of the pixels draining through it over the view's 99.9th percentile. Wet: the head's wetland and open water
  * probabilities added. The first two are relative to what is on screen, so the picture rescales as the map moves.
  */
 export const VIRIDIS = ["#440154", "#482878", "#3e4989", "#31688e", "#26828e", "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"];
 /** The ramp as drawn: yellow where the value is 0 (high, sheds water, dry), purple where it is 1. */
 export const GROUND_RAMP = [...VIRIDIS].reverse();
+
+/** Mix how much ground drains through each pixel into the value, and work it out in the worker. */
+export const FLOW: boolean = false;
 
 const TILE = 256;
 // Terrarium zoom 14 is about 7 to 8 m a pixel in the lower 48 states, as fine as the 10 m elevation under it
@@ -82,7 +88,7 @@ export function createGround(map: maplibregl.Map, sampleWet: SampleWet, before: 
     if (key === askedKey) return compose();
     askedKey = key;
     state.busy = true;
-    const msg: GroundAsk = { id: ++asked, z, x0, x1, y0, y1 };
+    const msg: GroundAsk = { id: ++asked, z, x0, x1, y0, y1, flow: FLOW };
     worker.postMessage(msg);
     onState();
   }
@@ -103,14 +109,14 @@ export function createGround(map: maplibregl.Map, sampleWet: SampleWet, before: 
     for (let r = r0; r < r1; r += stepR)
       for (let c = c0; c < c1; c += stepC) {
         es.push(elev[r * w + c]!);
-        fs.push(flow[r * w + c]!);
+        if (FLOW) fs.push(flow[r * w + c]!);
       }
     es.sort((a, b2) => a - b2);
     fs.sort((a, b2) => a - b2);
     const q = (a: number[], p: number) => a[Math.min(a.length - 1, Math.max(0, Math.round(p * (a.length - 1))))]!;
     const lo = q(es, 0.02), hi = q(es, 0.98);
     const span = Math.max(hi - lo, 1e-3);
-    const ftop = Math.max(q(fs, 0.999), 1e-3);
+    const ftop = FLOW ? Math.max(q(fs, 0.999), 1e-3) : 1;
     state.lo = lo;
     state.hi = hi;
 
@@ -132,11 +138,11 @@ export function createGround(map: maplibregl.Map, sampleWet: SampleWet, before: 
     const px = img.data;
     for (let i = 0; i < N; i++) {
       const low = 1 - Math.min(1, Math.max(0, (elev[i]! - lo) / span));
-      const flo = Math.min(1, Math.max(0, flow[i]! / ftop));
+      const flo = FLOW ? Math.min(1, Math.max(0, flow[i]! / ftop)) : 0;
       const wt = Math.min(1, wetBuf[i]!);
       parts.low[i] = low;
       parts.flo[i] = flo;
-      const k = Math.round(((low + flo + wt) / 3) * 255) * 3;
+      const k = Math.round((FLOW ? (low + flo + wt) / 3 : (low + wt) / 2) * 255) * 3;
       px[4 * i] = lut[k]!;
       px[4 * i + 1] = lut[k + 1]!;
       px[4 * i + 2] = lut[k + 2]!;
@@ -183,7 +189,7 @@ export function createGround(map: maplibregl.Map, sampleWet: SampleWet, before: 
     if (c < 0 || r < 0 || c >= s.w || r >= s.h) return null;
     const i = r * s.w + c;
     const low = parts.low[i]!, flow = parts.flo[i]!, wet = Math.min(1, parts.wet[i]!);
-    return { low, flow, wet, value: (low + flow + wet) / 3, elev: s.elev[i]! };
+    return { low, flow, wet, value: FLOW ? (low + flow + wet) / 3 : (low + wet) / 2, elev: s.elev[i]! };
   }
 
   function set(o: { on?: boolean; year?: number; opacity?: number; mask?: number | null; dry?: number }) {

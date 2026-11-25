@@ -64,6 +64,10 @@ the share of flagged pixels that NWI calls wetland when the cutoff is set to fin
   squares that have both, they match against NWI (median wetland AUC .941 and .944, .932 without elevation), and
   the 10 m head finds as many or more of the small wetlands in all four states.
 
+- Against Annual NLCD's wetland classes, scored on the same state maps at NLCD's own share of dry ground flagged
+  (0.9 to 2.2 %), the national head with elevation finds more of the wetlands under 2 acres in all four states by
+  one rule and three of four by a stricter one. The head on AlphaEarth alone does not beat NLCD.
+
 ## Scripts
 
 Each script is self-contained (`uv run scripts/<name>.py`), reads everything over the network at run time and
@@ -89,6 +93,7 @@ caches nothing. The only files written are the figures and the saved heads.
 | `fine_labels.py` | Do finer state labels, or elevation, let a head find small wetlands? Four states, 66 squares. | 66 min, 11 GB (1 m lidar); 36 min, 10 GB (`--elev 10m`) |
 | `national_elev.py` | Does 10 m elevation help one national head, on NWI pixels and on small wetlands? 76 squares. Saves the head. | 57 min, 9 GB |
 | `national_lidar.py` | In one national head, does 1 m lidar beat the 10 m elevation? The same pixels of the 72 squares that have both. | 104 min, 10 GB |
+| `nlcd_small_wetlands.py` | Does Annual NLCD find the small wetlands of the states' maps as well as the saved heads? Nothing fitted. | 10 min, 7 GB |
 
 `ept.py` reads the USGS public Entwine Point Tile clouds and `pc.py` reads Microsoft Planetary Computer.
 `nwi_tiles.py` reads NWI polygons from the PMTiles copy on Source Cooperative, and `export_head.py` writes a
@@ -618,8 +623,8 @@ Pixels against NWI, six folds, each square scored by heads that never saw it:
   what is flagged is wetland.
 - Elevation does not lower the share of upland called wetland.
 
-The head is saved as `models/wetland-water-head-alphaearth-elev10m.npz` (75 inputs). The browser map does not use
-it: that needs the elevation read in the browser.
+The head is saved as `models/wetland-water-head-alphaearth-elev10m.npz` (75 inputs). It is the head on the browser
+map (see The browser map).
 
 ### 1 m lidar against 10 m elevation in the national head
 
@@ -661,29 +666,75 @@ Wetlands under 2 acres of the four states' finer maps found, with 5 % of dry gro
   pixel is not what is being tested.
 - The small wetlands are still those of four Northeast and mid-Atlantic states.
 
+### Small wetlands against Annual NLCD
+
+`nlcd_small_wetlands.py` scores Annual NLCD 2024 (30 m; woody and emergent herbaceous wetland) and the two saved
+national heads against the same state maps, in the same eleven held-out squares. NLCD is a class, not a score, so
+it has one price: it calls 0.9 % of the dry background wetland in Vermont, 1.6 % in Massachusetts and 2.2 % in New
+Jersey and Delaware. The heads' cutoffs are set to flag the same share in each state. Wetlands under 2 acres found:
+
+| State | Rule | NLCD | AlphaEarth alone | with 10 m elevation |
+|---|---|---|---|---|
+| Vermont (1,542) | any pixel flagged | 12 % | 18 % | 32 % |
+| | half or more flagged | 5 % | 7 % | 14 % |
+| Massachusetts (1,448) | any pixel flagged | 51 % | 46 % | 67 % |
+| | half or more flagged | 34 % | 24 % | 39 % |
+| New Jersey (352) | any pixel flagged | 52 % | 28 % | 59 % |
+| | half or more flagged | 37 % | 13 % | 27 % |
+| Delaware (532) | any pixel flagged | 41 % | 45 % | 69 % |
+| | half or more flagged | 28 % | 24 % | 34 % |
+
+- Counting only the wetlands NWI does not have, by the first rule: 31, 51, 35 and 47 % for the head with elevation
+  against 8, 25, 17 and 24 % for NLCD.
+- NLCD cannot be turned up past its own price. With 5 % of dry ground flagged the head with elevation finds 39, 70,
+  50 and 62 % (the table in One national head with 10 m elevation).
+- NLCD does best where NWI holds most of the state's wetlands (76 to 87 % in Massachusetts, New Jersey and Delaware)
+  and worst in Vermont, where NWI holds 23 %.
+- Adding NLCD's open water class changes no number by more than 2 points.
+
 ### The browser map
 
 `web/` is a Vite and TypeScript page that reads the AlphaEarth mosaic in the browser and scores the three-class head
-on the GPU, one year at a time, from zoom 12.5 in. It has two views, flipped with V.
+on the GPU, one year at a time, from zoom 11.5 in. It has two views, flipped with V.
+
+The head on the map is the one with 10 m elevation. The page reads USGS 3DEP's 1/3 arc-second elevation files
+straight from the USGS bucket (cloud-optimized GeoTIFFs, by window, with Development Seed's GeoTIFF reader), sends
+the window under each 256 pixel piece of the mosaic to the GPU, and works out the eleven terrain numbers of
+`terrain_adds.terrain` there (`web/src/terrain-gpu.ts`): the ground on a 2 m grid with a 400 m margin, each number
+on that grid, averaged over 10 m cells. Only the numbers under the piece's pixels come back, and they go into the
+head with the embedding. Without WebGPU the same arithmetic runs on the CPU.
+
+One number is worked out another way than the Python: the depression fill runs on the elevation model's own pixels
+and is carried to the 2 m grid, where the Python fills the 2 m grid itself. On made-up ground the GPU's numbers
+match the CPU's to .0002. Over 3,249 points near Percy, Mississippi the page's wet score and the Python's correlate
+at .999 and fall on the same side of .5 at 99.6 % of them; the largest gaps (up to .27) come from each piece having
+its own grid and its own edge for the fill, where the Python fills over a whole 10 km square. A piece with no
+elevation at all (abroad, open sea) draws nothing; an elevation read that fails is tried again and said in the
+status line.
+
+A zoom 11.5 view of 135 pieces held 2.8 GB across the browser's processes once drawn, measured headless (3.3 GB at
+its peak), against 1.9 GB for the same view with no elevation read.
 
 The first view gives every pixel one value and shades straight through wetland and water:
 
-    value = (how low the ground sits in the view + how much ground drains through it + the head's wet score) / 3
+    value = (how low the ground sits in the view + the head's wet score) / 2
 
-Each part runs from 0 to 1. Low is the pixel's elevation between the view's 2nd and 98th percentile, turned over.
-Flow is the log of the pixels draining through it, worked out in a worker for each view: depressions are filled
-with a tiny slope (priority flood), each pixel drains to its steepest lower neighbor, the upstream pixels are
-counted, and a level water surface takes one count all over. Wet is the head's wetland and open water
-probabilities added. The first two are relative to what is on screen, so the picture rescales as the map moves.
+Each part runs from 0 to 1. Low is the pixel's elevation between the view's 2nd and 98th percentile, turned over,
+so it is relative to what is on screen and the picture rescales as the map moves. Wet is the head's wetland and
+open water probabilities added.
+
+A third part, flow, is written and switched off (`FLOW` in `web/src/ground.ts`): the log of the pixels draining
+through each pixel, from depressions filled with a tiny slope (priority flood) and each pixel draining to its
+steepest lower neighbor. It knows only the ground inside the view, so a stream entering at the edge starts from
+nothing there, it draws one-pixel threads, and on flat ground it follows paths the fill makes up.
 Elevation comes from the Terrarium terrain tiles on AWS Open Data (USGS 3DEP in the United States), read at about
 7 to 8 m a cell. The ramp is viridis, yellow for high ground that sheds water to purple for low wet ground that
 collects it.
 
 The second view is wetland and water alone on the CARTO BluGrn ramp over the USGS topo basemap.
 
-Both use the head taught on AlphaEarth alone, so they carry the small-wetland limits above; the head with elevation
-is not in the map. The flow knows only the ground inside the view, so a stream entering at the edge starts from
-nothing there.
+Sentinel-2 (Space, P) is asked for as 64 pixel tiles, so the map reads the mosaic's 10 m level from the minimum
+zoom in.
 
     cd web && npm install && npx vite
 

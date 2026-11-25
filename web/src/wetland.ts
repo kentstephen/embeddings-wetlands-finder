@@ -5,8 +5,9 @@ import type { ShaderModule } from "@luma.gl/shadertools";
 import type * as zarr from "zarrita";
 
 import { CHUNK, MIN_ZOOM, openMosaic, RES, X0, Y0, YEAR_ORIGIN } from "./aef";
+import { DemSource } from "./dem-source";
 import type { FillNet } from "./fill";
-import { waterOf, type WetHead, wetOf, WET_STEPS } from "./head";
+import { N_EMB, waterOf, type WetHead, wetOf, WET_STEPS } from "./head";
 import { Pool } from "./pool";
 import { BLUGRN, glslRamp } from "./ramp";
 
@@ -94,7 +95,9 @@ export async function createWetland(head: WetHead, beforeId: () => string | unde
   const opened = await ZarrSource.open(arr, { geoZarrMetadata: attrs });
   if (!opened.is("int8")) throw new Error("Expected int8 embeddings");
   const source: ZarrSource<"int8"> = opened;
-  const pool = new Pool(head, fill);
+  // a head that reads elevation is given the ground under each chunk
+  const dems = head.n_in > N_EMB ? new DemSource() : null;
+  const pool = new Pool(head, fill, dems);
 
   // the planes by "year:row-col", the last used last; 128 KB each, at most CAP_BYTES
   const planes = new Map<string, Planes>();
@@ -368,5 +371,5 @@ export async function createWetland(head: WetHead, beforeId: () => string | unde
     }
   }
 
-  return { layer, valueAtPoint, loadedIn, pool, sampleWet };
+  return { layer, valueAtPoint, loadedIn, pool, sampleWet, dems };
 }

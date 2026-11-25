@@ -9,7 +9,7 @@
  * water surface takes one count all over. The scene is the tiles asked for, so a stream that enters at the edge starts
  * from nothing there.
  */
-export type GroundAsk = { id: number; z: number; x0: number; x1: number; y0: number; y1: number };
+export type GroundAsk = { id: number; z: number; x0: number; x1: number; y0: number; y1: number; flow: boolean };
 export type GroundAnswer = { id: number; z: number; x0: number; y0: number; w: number; h: number; elev: Float32Array; flow: Float32Array; ms: number; missing: number };
 
 const TILE = 256;
@@ -173,6 +173,7 @@ function flowOf(z: Float32Array, w: number, h: number): Float32Array {
 
 self.onmessage = async (e: MessageEvent<GroundAsk>) => {
   const { id, z, x0, x1, y0, y1 } = e.data;
+  const wantFlow = e.data.flow;
   const t0 = performance.now();
   const nx = x1 - x0 + 1, ny = y1 - y0 + 1;
   const w = nx * TILE, h = ny * TILE;
@@ -196,7 +197,8 @@ self.onmessage = async (e: MessageEvent<GroundAsk>) => {
   for (let i = 0; i < elev.length; i++) if (elev[i]! > top) top = elev[i]!;
   if (!(top > -Infinity)) top = 0;
   for (let i = 0; i < elev.length; i++) if (!(elev[i]! === elev[i]!)) elev[i] = top;
-  const flow = flowOf(elev, w, h);
+  // the flow is worked out only when the page mixes it in (ground.ts, FLOW)
+  const flow = wantFlow ? flowOf(elev, w, h) : new Float32Array(0);
   const out: GroundAnswer = { id, z, x0, y0, w, h, elev, flow, ms: performance.now() - t0, missing };
   (self as unknown as Worker).postMessage(out, [elev.buffer, flow.buffer]);
 };

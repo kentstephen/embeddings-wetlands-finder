@@ -8,7 +8,7 @@ import { Protocol } from "pmtiles";
 
 import { MIN_ZOOM, RES, X0, Y0 } from "./aef";
 import type { FillNet } from "./fill";
-import { createGround, GROUND_RAMP } from "./ground";
+import { createGround, FLOW, GROUND_RAMP } from "./ground";
 import type { WetHead } from "./head";
 import { BLUGRN } from "./ramp";
 import { makeSearch } from "./search";
@@ -27,6 +27,9 @@ const NWI_TILES = "https://data.source.coop/cboettig/wetlands/nwi-v2.pmtiles";
 // Sentinel-2, one cloudless mosaic a year: EOxCloudless by EOX (free for non-commercial use with the credit on the map,
 // CC BY-NC-SA 4.0). 2018 is left out (its mosaic is hazy and pale); the map's 2018 shows 2019's imagery.
 const S2_YEARS = [2017, 2019, 2020, 2021, 2022, 2023, 2024, 2025];
+// Asked for as 64 px tiles, so the map reads the 10 m level (zoom 14) from the minimum zoom in, not a coarser one
+// stretched; past 14 the tiles are that level drawn larger
+const S2_TILE = 64, S2_MAXZOOM = 14;
 const S2_URL = (y: number) => `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-${y}_3857/default/g/{z}/{y}/{x}.jpg`;
 const s2YearFor = (y: number) => S2_YEARS.reduce((a, b) => (Math.abs(b - y) <= Math.abs(a - y) ? b : a));
 // the Yazoo basin, Mississippi: bottomland forest, oxbows and fields
@@ -38,7 +41,8 @@ const FLAT = { maxPitch: 0, pitchWithRotate: false, touchPitch: false, dragRotat
 const HI = 0.95;
 
 const [head, fill] = (await Promise.all([
-  fetch(`${import.meta.env.BASE_URL}models/wetland_water_aef.json`).then((r) => r.json()),
+  // the head that reads the AlphaEarth embedding and the shape of the ground (scripts/national_elev.py)
+  fetch(`${import.meta.env.BASE_URL}models/wetland_water_aef_elev10m.json`).then((r) => r.json()),
   // the map runs without the fill (each chunk then draws once, from all its bytes)
   fetch(`${import.meta.env.BASE_URL}models/fill_aef_32p.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
 ])) as [WetHead, FillNet | null];
@@ -79,7 +83,7 @@ document.body.insertAdjacentHTML(
     <div class="readout" id="read">&nbsp;</div>
     <div class="status" id="status"></div>
     <div class="keys" id="keys"></div>
-    <div class="credits">Elevation: Terrarium terrain tiles (AWS Open Data; USGS 3DEP in the United States) &middot; head taught on ${head.taught_on} squares of the lower 48 states from NWI polygons; NWI is not an input &middot; AlphaEarth &copy; Google, Google DeepMind, via Source Cooperative &middot; NWI: USFWS via cboettig/wetlands &middot; EOxCloudless <a href="https://cloudless.eox.at" target="_blank" rel="noopener">https://cloudless.eox.at</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2017 to 2025) &middot; basemap: USGS The National Map &middot; search by Photon and Nominatim over &copy; OpenStreetMap</div>
+    <div class="credits">Elevation: USGS 3DEP 1/3 arc-second (about 10 m) for the head; Terrarium terrain tiles (AWS Open Data; USGS 3DEP in the United States) for low ground &middot; head taught on ${head.taught_on} squares of the lower 48 states from NWI polygons; NWI is not an input &middot; AlphaEarth &copy; Google, Google DeepMind, via Source Cooperative &middot; NWI: USFWS via cboettig/wetlands &middot; EOxCloudless <a href="https://cloudless.eox.at" target="_blank" rel="noopener">https://cloudless.eox.at</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2017 to 2025) &middot; basemap: USGS The National Map &middot; search by Photon and Nominatim over &copy; OpenStreetMap</div>
     </div>
   </div>
 </div>
@@ -117,7 +121,7 @@ addNwi(map, firstLabel);
 /** Sentinel-2 on a map: the year's mosaic over everything, nothing drawn on it (made the first time it is asked for), or none. */
 function showS2(m: maplibregl.Map, year: number | null) {
   if (year !== null && !m.getLayer(`s2-${year}`)) {
-    m.addSource(`s2-${year}`, { type: "raster", tiles: [S2_URL(year)], tileSize: 256, maxzoom: 15 });
+    m.addSource(`s2-${year}`, { type: "raster", tiles: [S2_URL(year)], tileSize: S2_TILE, maxzoom: S2_MAXZOOM });
     m.addLayer({ id: `s2-${year}`, type: "raster", source: `s2-${year}`, paint: { "raster-fade-duration": 0 } });
   }
   for (const y of S2_YEARS) if (m.getLayer(`s2-${y}`)) m.setLayoutProperty(`s2-${y}`, "visibility", y === year ? "visible" : "none");
@@ -160,6 +164,9 @@ const wet = await createWetland(head, () => firstLabel, fill, () => {
   ground.refresh();
   status();
 });
+if (wet.dems) wet.dems.onChange = () => status();
+// for the headless checks, in development only
+if (import.meta.env.DEV) (window as unknown as { __wet: typeof wet }).__wet = wet;
 // the ground picture sits under the NWI outlines; it is drawn again as the scores under it come in
 const ground = createGround(map, wet.sampleWet, () => (map.getLayer("nwi-line") ? "nwi-line" : firstLabel), () => status());
 /** Close enough to read and score. */
@@ -174,9 +181,11 @@ const viewBox = (): [number, number, number, number] => {
 function status() {
   if (map.getZoom() < MIN_ZOOM) return say("");
   const { loaded, rough, wanted } = wet.loadedIn(viewBox(), st.year);
-  const how = wet.pool.modes[0] ? ` Scoring on the ${wet.pool.modes[0].mode === "gpu" ? "GPU" : "CPU"}.` : "";
+  const tm = wet.pool.terrainModes[0];
+  const el = (wet.dems?.error ? ` Elevation did not read: ${wet.dems.error}.` : "") + (wet.pool.terrainError ? ` Ground on the CPU: ${wet.pool.terrainError}.` : "");
+  const how = (wet.pool.modes[0] ? ` Scoring on the ${wet.pool.modes[0].mode === "gpu" ? "GPU" : "CPU"}${tm && tm.mode !== wet.pool.modes[0].mode ? `, the ground on the ${tm.mode === "gpu" ? "GPU" : "CPU"}` : ""}.` : "") + el;
   const g = ground.state;
-  const gs = st.view !== "ground" ? "" : g.busy ? " Working out the flow." : g.cells ? ` Ground ${Math.round(g.lo)} to ${Math.round(g.hi)} m in view; flow in ${(g.ms / 1000).toFixed(1)} s.` : "";
+  const gs = st.view !== "ground" ? "" : g.busy ? " Reading the ground." : g.cells ? ` Ground ${Math.round(g.lo)} to ${Math.round(g.hi)} m in view${FLOW ? `; flow in ${(g.ms / 1000).toFixed(1)} s` : ""}.` : "";
   if (gs) return say(loaded < wanted ? `Reading ${st.year}: ${loaded} of ${wanted} pieces in.${gs}` : `${st.year}: all ${wanted} pieces in.${gs}${how}`);
   if (loaded < wanted) say(`Reading ${st.year}: ${loaded} of ${wanted} pieces in.${how}`);
   else if (rough) say(`${st.year}: drawn from half the bands, ${rough} of ${wanted} pieces still sharpening.${how}`);
@@ -210,10 +219,10 @@ function paint() {
   $("s2card").innerHTML = `<div class="lab">Sentinel-2</div><div class="yr">${s2YearFor(st.year)}</div>`;
   const on = (b: boolean) => (b ? "on" : "off");
   const gr = st.view === "ground";
-  $("title").textContent = gr ? "Low, draining, wet" : "Wetland and water";
+  $("title").textContent = gr ? (FLOW ? "Low, draining, wet" : "Low and wet") : "Wetland and water";
   $("sub").textContent = gr
-    ? "One value for every pixel: how low the ground sits in the view, how much ground drains through it, and the wet score from the AlphaEarth embedding of one year. It rescales as the map moves."
-    : "Scored in your browser from the AlphaEarth embedding of one year, 10 m.";
+    ? `One value for every pixel: how low the ground sits in the view${FLOW ? ", how much ground drains through it," : ""} and the wet score from the AlphaEarth embedding of one year and the shape of the ground. It rescales as the map moves.`
+    : "Scored in your browser from the AlphaEarth embedding of one year and the shape of the ground (10 m elevation), 10 m.";
   $("ticks").innerHTML = gr
     ? '<span style="left:0">high, sheds water, dry</span><span style="left:100%">low, collects water, wet</span>'
     : '<span style="left:0">barely wet</span><span style="left:50%">wetland</span><span style="left:100%">open water</span>';
@@ -426,7 +435,7 @@ function readFor(lng: number, lat: number) {
   if (st.view === "ground") {
     const g = groundOn() ? ground.valueAt(lng, lat) : null;
     $("read").innerHTML = g
-      ? `<span>low <b>${g.low.toFixed(2)}</b></span><span>flow <b>${g.flow.toFixed(2)}</b></span><span>wet <b>${g.wet.toFixed(2)}</b></span><span>${Math.round(g.elev)} m</span>`
+      ? `<span>low <b>${g.low.toFixed(2)}</b></span>${FLOW ? `<span>flow <b>${g.flow.toFixed(2)}</b></span>` : ""}<span>wet <b>${g.wet.toFixed(2)}</b></span><span>${Math.round(g.elev)} m</span>`
       : "&nbsp;";
     return;
   }

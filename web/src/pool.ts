@@ -1,5 +1,6 @@
 import type { FillNet } from "./fill";
-import type { WetHead } from "./head";
+import type { DemSource } from "./dem-source";
+import { N_EMB, type WetHead } from "./head";
 import WetWorker from "./wet.worker.ts?worker";
 
 /** A few read-and-score workers; a chunk always goes to the same one. */
@@ -15,7 +16,15 @@ export class Pool {
   fillModes: string[] = [];
   onMode: (m: Mode) => void = () => {};
 
-  constructor(head: WetHead, fill: FillNet | null, size = Math.max(2, Math.min(4, (navigator.hardwareConcurrency || 4) - 2))) {
+  /** How each worker works out the terrain numbers: "gpu" or "cpu", and the GPU's largest gap from the CPU on made-up ground. */
+  terrainModes: { mode: string; gap: number }[] = [];
+  /** Why a worker's GPU could not work out the terrain numbers, if one could not (it uses the CPU). */
+  terrainError = "";
+  private needsGround: boolean;
+
+  /** dems: the elevation under each chunk, for a head that reads terrain numbers. */
+  constructor(head: WetHead, fill: FillNet | null, private dems: DemSource | null = null, size = Math.max(2, Math.min(4, (navigator.hardwareConcurrency || 4) - 2))) {
+    this.needsGround = head.n_in > N_EMB;
     this.ws = Array.from({ length: size }, () => {
       const w = new WetWorker();
       const ent: W = { w, waiting: new Map() };
@@ -23,6 +32,14 @@ export class Pool {
         const d = ev.data;
         if (d.type === "fill") {
           this.fillModes.push(d.mode!);
+          return;
+        }
+        if (d.type === "terrainError") {
+          this.terrainError = (d as { message?: string }).message || "";
+          return;
+        }
+        if (d.type === "terrainMode") {
+          this.terrainModes.push({ mode: d.mode!, gap: d.probeGap! });
           return;
         }
         if (d.type === "mode") {
@@ -59,6 +76,11 @@ export class Pool {
     return new Promise<Uint8Array>((ok, no) => {
       ent.waiting.set(id, { ok, no, rough });
       ent.w.postMessage({ type: "read", id, px0, py0, w, h, timeIdx, ahead });
+      if (this.needsGround && this.dems)
+        this.dems.get(px0, py0, w, h).then(
+          (dem) => ent.waiting.has(id) && ent.w.postMessage({ type: "dem", id, dem }),
+          (e) => ent.waiting.has(id) && ent.w.postMessage({ type: "dem", id, error: (e as Error)?.message || String(e) }),
+        );
       signal?.addEventListener(
         "abort",
         () => {
