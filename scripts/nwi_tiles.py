@@ -4,7 +4,8 @@ The USFWS map service answers HTTP 500 when a box touches a very large polygon (
 the whole polygon. The zoom 14 tiles hold every polygon cut at the tile's edge, so a box costs a few dozen small
 range reads whatever it touches. Vertices are on a 4096 grid per tile, about half a meter at zoom 14.
 
-    polys = nwi_tiles.read(box)   # [(shapely geometry in lon/lat, type code)], larger pieces first
+    polys = nwi_tiles.read(box)         # [(shapely geometry in lon/lat, type code)], larger pieces first
+    polys = nwi_tiles.read_codes(box)   # the same with NWI's own code for each piece
 
 Needs the pmtiles and mapbox-vector-tile packages.
 """
@@ -53,12 +54,17 @@ def _tile(xy):
                 continue
             g = shapely.transform(shape(f["geometry"]), to_lonlat)
             if not g.is_empty:
-                out.append((g, E.TYPES.get(f["properties"].get("WETLAND_TYPE"), 8)))
+                out.append((g, E.TYPES.get(f["properties"].get("WETLAND_TYPE"), 8), f["properties"].get("ATTRIBUTE") or ""))
     return out
 
 
 def read(box):
     """NWI polygon pieces that touch the box (lon0, lat0, lon1, lat1), as (geometry, type code), larger first."""
+    return [t[:2] for t in read_codes(box)]
+
+
+def read_codes(box):
+    """The same pieces with NWI's own code for each (its ATTRIBUTE, such as PFO1C): (geometry, type code, code)."""
     lon0, lat0, lon1, lat1 = box
     n = 2 ** Z
     tx = lambda lon: int(np.floor((lon + 180) / 360 * n))  # noqa: E731

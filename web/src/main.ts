@@ -166,7 +166,7 @@ const wet = await createWetland(head, () => firstLabel, fill, () => {
 });
 if (wet.dems) wet.dems.onChange = () => status();
 // for the headless checks, in development only
-if (import.meta.env.DEV) (window as unknown as { __wet: typeof wet }).__wet = wet;
+if (import.meta.env.DEV) Object.assign(window, { __wet: wet, __map: map, __overlay: overlay, __closeDem: () => import("./dem").then((m) => m.closeDem()) });
 // the ground picture sits under the NWI outlines; it is drawn again as the scores under it come in
 const ground = createGround(map, wet.sampleWet, () => (map.getLayer("nwi-line") ? "nwi-line" : firstLabel), () => status());
 /** Close enough to read and score. */

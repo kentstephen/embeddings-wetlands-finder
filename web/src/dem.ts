@@ -48,6 +48,13 @@ function open(n: number, w: number) {
   return f;
 }
 
+/** Stop the tile decoders and forget the open files. */
+export function closeDem() {
+  pool?.destroy();
+  pool = null;
+  files.clear();
+}
+
 /** The grid pixels that cover a box of longitude and latitude, with two more on every side. */
 export async function readDem(west: number, south: number, east: number, north: number, signal?: AbortSignal): Promise<Dem> {
   const gc0 = Math.floor((west + 180) * PER_DEG) - 2, gc1 = Math.ceil((east + 180) * PER_DEG) + 2;

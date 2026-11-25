@@ -1,4 +1,5 @@
 /// <reference types="@webgpu/types" />
+import { sharedDevice } from "./gpu-device";
 import { type FillNet, fillOffsets } from "./fill";
 
 /**
@@ -75,11 +76,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 export async function makeFiller(f: FillNet, w: Float32Array, maxN: number): Promise<Filler | null> {
-  const gpu = (globalThis.navigator as Navigator | undefined)?.gpu;
-  if (!gpu) return null;
-  const adapter = await gpu.requestAdapter();
-  if (!adapter) return null;
-  const device = await adapter.requestDevice();
+  const device = await sharedDevice();
+  if (!device) return null;
   const module = device.createShaderModule({ code: wgsl(f) });
   const info = await module.getCompilationInfo();
   const errs = info.messages.filter((m) => m.type === "error");

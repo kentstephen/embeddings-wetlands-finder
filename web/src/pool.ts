@@ -4,6 +4,11 @@ import { N_EMB, type WetHead } from "./head";
 import WetWorker from "./wet.worker.ts?worker";
 
 /** A few read-and-score workers; a chunk always goes to the same one. */
+/**
+ * How many. Each holds its own GPU buffers and read queues, about 280 MB across the browser's processes measured
+ * headless, whatever the view; two keep the map's floor low, and the reads are the slow part, not the scoring.
+ */
+const WORKERS = 2;
 type W = { w: Worker; waiting: Map<number, { ok: (p: Uint8Array) => void; no: (e: Error) => void; rough?: (p: Uint8Array) => void }> };
 export type Mode = { mode: string; probeGap: number; gpuGap: number };
 
@@ -23,7 +28,7 @@ export class Pool {
   private needsGround: boolean;
 
   /** dems: the elevation under each chunk, for a head that reads terrain numbers. */
-  constructor(head: WetHead, fill: FillNet | null, private dems: DemSource | null = null, size = Math.max(2, Math.min(4, (navigator.hardwareConcurrency || 4) - 2))) {
+  constructor(head: WetHead, fill: FillNet | null, private dems: DemSource | null = null, size = WORKERS) {
     this.needsGround = head.n_in > N_EMB;
     this.ws = Array.from({ length: size }, () => {
       const w = new WetWorker();
@@ -61,6 +66,12 @@ export class Pool {
       w.postMessage({ type: "init", head, fill });
       return ent;
     });
+  }
+
+  /** Stop every worker and free what they hold. Nothing can be read after this. */
+  stop() {
+    for (const e of this.ws) e.w.terminate();
+    this.ws = [];
   }
 
   /**

@@ -1,4 +1,5 @@
 /// <reference types="@webgpu/types" />
+import { sharedDevice } from "./gpu-device";
 import { N_EMB, type WetHead, WET_STEPS } from "./head";
 
 /**
@@ -63,11 +64,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 export async function makeScorer(h: WetHead, w: Float32Array, maxN: number): Promise<Scorer | null> {
-  const gpu = (globalThis.navigator as Navigator | undefined)?.gpu;
-  if (!gpu) return null;
-  const adapter = await gpu.requestAdapter();
-  if (!adapter) return null;
-  const device = await adapter.requestDevice();
+  const device = await sharedDevice();
+  if (!device) return null;
   const module = device.createShaderModule({ code: wgsl(h) });
   const info = await module.getCompilationInfo();
   const errs = info.messages.filter((m) => m.type === "error");

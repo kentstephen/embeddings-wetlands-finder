@@ -1,4 +1,5 @@
 /// <reference types="@webgpu/types" />
+import { sharedDevice } from "./gpu-device";
 import type { Job } from "./chunk-terrain";
 import { CELL, N_TERRAIN, STEP } from "./terrain";
 
@@ -210,11 +211,8 @@ fn pixels(@builtin(global_invocation_id) g: vec3<u32>) {
 `;
 
 export async function makeTerrainGpu(): Promise<TerrainGpu | null> {
-  const gpu = (globalThis.navigator as Navigator | undefined)?.gpu;
-  if (!gpu) return null;
-  const adapter = await gpu.requestAdapter();
-  if (!adapter) return null;
-  const device = await adapter.requestDevice();
+  const device = await sharedDevice();
+  if (!device) return null;
   const module = device.createShaderModule({ code: WGSL });
   const info = await module.getCompilationInfo();
   const errs = info.messages.filter((m) => m.type === "error");

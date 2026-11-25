@@ -94,6 +94,9 @@ caches nothing. The only files written are the figures and the saved heads.
 | `national_elev.py` | Does 10 m elevation help one national head, on NWI pixels and on small wetlands? 76 squares. Saves the head. | 57 min, 9 GB |
 | `national_lidar.py` | In one national head, does 1 m lidar beat the 10 m elevation? The same pixels of the 72 squares that have both. | 104 min, 10 GB |
 | `nlcd_small_wetlands.py` | Does Annual NLCD find the small wetlands of the states' maps as well as the saved heads? Nothing fitted. | 10 min, 7 GB |
+| `water_regime.py` | Inside a wetland, do the embeddings say how long it stays wet (NWI's water regime) and what kind it is? 60 squares, three embeddings, terrain; `--s2` adds two seasons of Sentinel-2. | see the section |
+| `cover_kinds.py` | Which crop, which natural vegetation type, which land cover, and does terrain add? Cropland Data Layer, LANDFIRE, NLCD; 76 squares. | see the section |
+| `vernal_pools.py` | Do the heads find Massachusetts' certified and potential vernal pools? | see the section |
 
 `ept.py` reads the USGS public Entwine Point Tile clouds and `pc.py` reads Microsoft Planetary Computer.
 `nwi_tiles.py` reads NWI polygons from the PMTiles copy on Source Cooperative, and `export_head.py` writes a
@@ -712,8 +715,13 @@ its own grid and its own edge for the fill, where the Python fills over a whole 
 elevation at all (abroad, open sea) draws nothing; an elevation read that fails is tried again and said in the
 status line.
 
-A zoom 11.5 view of 135 pieces held 2.8 GB across the browser's processes once drawn, measured headless (3.3 GB at
-its peak), against 1.9 GB for the same view with no elevation read.
+Memory, measured headless (a software GPU, whose buffers count as memory) across the browser's processes: a zoom
+12 view of 77 pieces holds 1.4 GB once drawn and 2.3 GB at its peak; the page with nothing read holds 1.1 GB. The
+cost above an empty map is mostly fixed, not per piece, and sits in the scoring workers: each holds its GPU
+buffers and read queues whatever the view. Two things brought it down from 2.6 GB for the same view: one WebGPU
+device per worker for the fill network, the terrain passes and the head, where each had made its own, and two
+workers where there were four. `Pool.stop()` and `closeDem()` free the workers and the elevation
+decoders.
 
 The first view gives every pixel one value and shades straight through wetland and water:
 
